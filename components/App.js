@@ -1,0 +1,2916 @@
+﻿    const { useState, useEffect, useRef } = React;
+
+    // PC/모바일 100% 호환 직관적 유니코드 수학 기호 변환기
+    function cleanLatexToUniversalReadable(mathStr) {
+      if (!mathStr) return "";
+      let s = String(mathStr).trim();
+
+      // 끝에 남은 불완전한 백슬래시 제거 (예: -\sin\ -> -\sin)
+      s = s.replace(/\\+$/, "");
+
+      // \frac{A}{B} 분수 변환 (중첩 구조 반복 해제)
+      let prev;
+      do {
+        prev = s;
+        s = s.replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, "($1/$2)");
+      } while (s !== prev);
+
+      // 삼각함수
+      s = s
+        .replace(/\\cos\b/g, "cos")
+        .replace(/\\sin\b/g, "sin")
+        .replace(/\\tan\b/g, "tan")
+        .replace(/\\sec\b/g, "sec")
+        .replace(/\\csc\b/g, "csc")
+        .replace(/\\cot\b/g, "cot");
+
+      // 그리스 문자 (PC 및 모바일 표준 유니코드)
+      s = s
+        .replace(/\\pi\b/g, "π")
+        .replace(/\\theta\b/g, "θ")
+        .replace(/\\alpha\b/g, "α")
+        .replace(/\\beta\b/g, "β")
+        .replace(/\\gamma\b/g, "γ")
+        .replace(/\\delta\b/g, "δ")
+        .replace(/\\lambda\b/g, "λ")
+        .replace(/\\mu\b/g, "μ")
+        .replace(/\\sigma\b/g, "σ")
+        .replace(/\\omega\b/g, "ω")
+        .replace(/\\Delta\b/g, "Δ")
+        .replace(/\\Omega\b/g, "Ω");
+
+      // 극한 표기
+      s = s
+        .replace(/\\lim_\{x\s*\\to\s*0\}/g, "lim(x → 0) ")
+        .replace(/\\lim_\{x\s*\\to\s*\\infty\}/g, "lim(x → ∞) ")
+        .replace(/\\lim_\{x\s*\\to\s*([^{}]+)\}/g, "lim(x → $1) ")
+        .replace(/\\lim\b/g, "lim");
+
+      // 수학 연산자 및 기호
+      s = s
+        .replace(/\\infty\b/g, "∞")
+        .replace(/\\to\b|\\rightarrow\b/g, "→")
+        .replace(/\\leftarrow\b/g, "←")
+        .replace(/\\leftrightarrow\b/g, "↔")
+        .replace(/\\times\b/g, "×")
+        .replace(/\\div\b/g, "÷")
+        .replace(/\\neq\b/g, "≠")
+        .replace(/\\leq\b/g, "≤")
+        .replace(/\\geq\b/g, "≥")
+        .replace(/\\pm\b/g, "±")
+        .replace(/\\mp\b/g, "∓")
+        .replace(/\\approx\b/g, "≈")
+        .replace(/\\cdot\b/g, "·")
+        .replace(/\\circ\b|\^\\circ\b/g, "°")
+        .replace(/\\prime\b/g, "'")
+        .replace(/\\sqrt\{([^{}]+)\}/g, "√($1)")
+        .replace(/\\sqrt\b/g, "√")
+        .replace(/\\int\b/g, "∫")
+        .replace(/\\sum\b/g, "∑")
+        .replace(/\\in\b/g, "∈")
+        .replace(/\\notin\b/g, "∉")
+        .replace(/\\subset\b/g, "⊂")
+        .replace(/\\cup\b/g, "∪")
+        .replace(/\\cap\b/g, "∩")
+        .replace(/\\log\b/g, "log")
+        .replace(/\\ln\b/g, "ln");
+
+      // 지수 거듭제곱
+      s = s
+        .replace(/\^2\b|\^\{2\}/g, "²")
+        .replace(/\^3\b|\^\{3\}/g, "³")
+        .replace(/\^([0-9a-zA-Z]+)/g, "^$1");
+
+      // 괄호 및 LaTeX 포맷팅 제거
+      s = s
+        .replace(/\\left\(/g, "(").replace(/\\right\)/g, ")")
+        .replace(/\\left\[/g, "[").replace(/\\right\]/g, "]")
+        .replace(/\\left\\\{/g, "{").replace(/\\right\\\}/g, "}")
+        .replace(/\\left|\\right/g, "")
+        .replace(/\\text\{([^{}]+)\}/g, "$1")
+        .replace(/\\mathbf\{([^{}]+)\}/g, "$1")
+        .replace(/\\mathit\{([^{}]+)\}/g, "$1");
+
+      // 잔여 백슬래시 정리: \sin -> sin 등
+      s = s.replace(/\\([a-zA-Z]+)/g, "$1");
+      s = s.replace(/\\/g, "");
+
+      return s;
+    }
+
+    // 모든 기기 호환 유니코드 수식 변환기 & KaTeX 렌더러
+    function renderUniversalMathHtml(rawText) {
+      if (!rawText) return "";
+
+      let text = String(rawText);
+
+      // 1. 블록 수식 $$...$$ 처리
+      text = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => {
+        if (window.katex) {
+          try {
+            // throwOnError: true로 두어 빨간 에러 텍스트 노출 원천 차단
+            return window.katex.renderToString(math.trim(), { displayMode: true, throwOnError: true });
+          } catch (e) {
+            const readable = cleanLatexToUniversalReadable(math);
+            return `<div class="my-2 p-2 rounded-xl bg-indigo-50/70 border border-indigo-200/60 font-mono font-bold text-center text-indigo-950">${readable}</div>`;
+          }
+        }
+        const readable = cleanLatexToUniversalReadable(math);
+        return `<div class="my-2 p-2 rounded-xl bg-indigo-50/70 border border-indigo-200/60 font-mono font-bold text-center text-indigo-950">${readable}</div>`;
+      });
+
+      // 2. 인라인 수식 $...$ 처리
+      text = text.replace(/\$([^\$\n]+?)\$/g, (_, math) => {
+        if (window.katex) {
+          try {
+            return window.katex.renderToString(math.trim(), { displayMode: false, throwOnError: true });
+          } catch (e) {
+            const readable = cleanLatexToUniversalReadable(math);
+            return `<span class="inline-block font-mono font-semibold px-1.5 py-0.5 mx-0.5 rounded-md bg-indigo-50/80 text-indigo-950 border border-indigo-200/60">${readable}</span>`;
+          }
+        }
+        const readable = cleanLatexToUniversalReadable(math);
+        return `<span class="inline-block font-mono font-semibold px-1.5 py-0.5 mx-0.5 rounded-md bg-indigo-50/80 text-indigo-950 border border-indigo-200/60">${readable}</span>`;
+      });
+
+      // 3. [핵심] $ 기호 없이 본문에 그대로 노출된 raw LaTeX (예: \cos(\frac{\pi}{2}+\theta) = -\sin\) 완전 정제!
+      text = cleanLatexToUniversalReadable(text);
+
+      // 4. 일반 텍스트 내 화살표 및 부등호 기호 친절 변환
+      text = text
+        .replace(/->/g, "→")
+        .replace(/<=\s*/g, "≤ ")
+        .replace(/>=\s*/g, "≥ ")
+        .replace(/!=/g, "≠")
+        .replace(/\+\/-/g, "±")
+        .replace(/\*\*([^\*]+?)\*\*/g, '<strong class="font-bold text-slate-900">$1</strong>')
+        .replace(/\n/g, "<br />");
+
+      return text;
+    }
+
+    function MathText({ text, className = "" }) {
+      const containerRef = useRef(null);
+
+      useEffect(() => {
+        if (!containerRef.current) return;
+        containerRef.current.innerHTML = renderUniversalMathHtml(text);
+      }, [text]);
+
+      return <div ref={containerRef} className={`leading-relaxed ${className}`} />;
+    }
+
+    // PDF 파일 처리 유틸리티
+    async function processPdfFile(file, pageNum = 1) {
+      if (!window.pdfjsLib) throw new Error("PDF.js 라이브러리가 로드되지 않았습니다.");
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const totalPages = pdf.numPages;
+      const targetPage = Math.min(Math.max(1, pageNum), totalPages);
+      const page = await pdf.getPage(targetPage);
+
+      const viewport = page.getViewport({ scale: 1.5 });
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      const dataUrl = canvas.toDataURL("image/png");
+
+      let extractedText = "";
+      try {
+        const textContent = await page.getTextContent();
+        extractedText = textContent.items.map(item => item.str).join(" ");
+      } catch (e) {
+        console.warn("PDF 텍스트 추출 생략:", e);
+      }
+
+      return {
+        dataUrl,
+        extractedText,
+        totalPages,
+        currentPage: targetPage,
+        fileName: file.name
+      };
+    }
+
+    // 강력하고 안전한 수학 수식 계산기 (그래프 곡선 렌더링 엔진)
+    function safeEvalMath(expr, x) {
+      try {
+        if (expr === undefined || expr === null) return null;
+        let clean = String(expr).trim();
+        if (!clean) return null;
+
+        // 1. 좌변 제거: "y =", "f(x) =", "g(x) =", "y :", "f(x):" 등
+        clean = clean.replace(/^(?:y|f\(x\)|g\(x\)|h\(x\))\s*[:=]\s*/i, "");
+
+        // 2. 등호(=)가 포함된 경우 우변만 추출
+        if (clean.includes("=")) {
+          const parts = clean.split("=");
+          clean = parts[parts.length - 1].trim();
+        }
+
+        // 3. LaTeX 수식 기호 변환
+        clean = clean
+          .replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, "(($1)/($2))")
+          .replace(/\\cdot|\\times/g, "*")
+          .replace(/\\sqrt\{([^{}]+)\}/g, "Math.sqrt($1)")
+          .replace(/\\sin/g, "Math.sin")
+          .replace(/\\cos/g, "Math.cos")
+          .replace(/\\tan/g, "Math.tan")
+          .replace(/\\ln/g, "Math.log")
+          .replace(/\\log/g, "Math.log10")
+          .replace(/\\pi/g, "Math.PI")
+          .replace(/\\left|\\right/g, "");
+
+        // 4. 거듭제곱 ^ -> **
+        clean = clean.replace(/\^/g, "**");
+
+        // 5. 절대값 |...| 변환
+        clean = clean.replace(/\|([^|]+)\|/g, "Math.abs($1)");
+
+        // 6. 곱셈 기호(*) 생략된 패턴 자동 복원
+        // 숫자 + 문자/괄호: 2x -> 2*x, 3( -> 3*(
+        clean = clean.replace(/(\d)\s*([a-zA-Z\(])/g, "$1*$2");
+        // 닫는 괄호 + (문자, 숫자, 여는 괄호): )( -> )*(, )x -> )*x
+        clean = clean.replace(/\)\s*([a-zA-Z0-9\(])/g, ")*$1");
+        // 단독 x + 여는 괄호: x(x+1) -> x*(x+1)
+        clean = clean.replace(/\b([xX])\s*\(/g, "$1*(");
+        // 단독 x + 숫자: x2 -> x*2
+        clean = clean.replace(/\b([xX])\s*(\d)/g, "$1*$2");
+
+        // 7. 자바스크립트 Math 내장 함수 매핑
+        clean = clean
+          .replace(/\bsin\b/g, "Math.sin")
+          .replace(/\bcos\b/g, "Math.cos")
+          .replace(/\btan\b/g, "Math.tan")
+          .replace(/\bsqrt\b/g, "Math.sqrt")
+          .replace(/\babs\b/g, "Math.abs")
+          .replace(/\bexp\b/g, "Math.exp")
+          .replace(/\bln\b/g, "Math.log")
+          .replace(/\bpi\b/gi, "Math.PI")
+          .replace(/Math\.Math\./g, "Math."); // 중복 방지
+
+        const fn = new Function("x", `"use strict"; return (${clean});`);
+        const val = fn(x);
+        return (typeof val === "number" && isFinite(val)) ? val : null;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    // 튜터 맞춤형 시각적 수학 그래프 캔버스 그림판 컴포넌트
+    function TutorGraphCanvas({ graphData, onExportToScratchpad }) {
+      const canvasRef = useRef(null);
+
+      // 함수 간 평행이동/각변환 포개짐(완전 일치) 자동 감지
+      const coincidingInfo = useMemo(() => {
+        if (!graphData || !graphData.functions || graphData.functions.length < 2) {
+          return { pairs: [], groups: [], isCoinciding: () => false, getGroup: () => null };
+        }
+        const functions = graphData.functions;
+        const xRange = graphData.xRange || [-4, 4];
+        const minX = xRange[0], maxX = xRange[1];
+        const sampleCount = 60;
+        const pairs = [];
+
+        for (let i = 0; i < functions.length; i++) {
+          for (let j = i + 1; j < functions.length; j++) {
+            let validCount = 0;
+            let closeCount = 0;
+            for (let s = 0; s <= sampleCount; s++) {
+              const sampleX = minX + (s / sampleCount) * (maxX - minX);
+              const y1 = safeEvalMath(functions[i].expr, sampleX);
+              const y2 = safeEvalMath(functions[j].expr, sampleX);
+              if (y1 !== null && isFinite(y1) && y2 !== null && isFinite(y2)) {
+                validCount++;
+                if (Math.abs(y1 - y2) < 0.005) {
+                  closeCount++;
+                }
+              }
+            }
+            if (validCount >= 10 && (closeCount / validCount) >= 0.92) {
+              pairs.push({ i, j });
+            }
+          }
+        }
+
+        const groups = [];
+        pairs.forEach(pair => {
+          let found = groups.find(g => g.includes(pair.i) || g.includes(pair.j));
+          if (found) {
+            if (!found.includes(pair.i)) found.push(pair.i);
+            if (!found.includes(pair.j)) found.push(pair.j);
+          } else {
+            groups.push([pair.i, pair.j]);
+          }
+        });
+
+        return {
+          pairs,
+          groups,
+          isCoinciding: (idx) => groups.some(g => g.includes(idx)),
+          getGroup: (idx) => groups.find(g => g.includes(idx)) || null
+        };
+      }, [graphData]);
+
+      useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas || !graphData) return;
+        const ctx = canvas.getContext("2d");
+        const width = canvas.width;
+        const height = canvas.height;
+
+        // 배경을 부드러운 화이트로 초기화
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, width, height);
+
+        const xRange = graphData.xRange || [-4, 4];
+        const yRange = graphData.yRange || [-4, 8];
+        const minX = xRange[0], maxX = xRange[1];
+        const minY = yRange[0], maxY = yRange[1];
+
+        const paddingX = 35;
+        const paddingY = 25;
+        const toCanvasX = (x) => ((x - minX) / (maxX - minX)) * (width - paddingX * 2) + paddingX;
+        const toCanvasY = (y) => height - paddingY - ((y - minY) / (maxY - minY)) * (height - paddingY * 2);
+
+        // 1. 연한 모눈 격자선
+        ctx.strokeStyle = "#f8fafc";
+        ctx.lineWidth = 1;
+        for (let x = Math.ceil(minX); x <= Math.floor(maxX); x++) {
+          const cx = toCanvasX(x);
+          ctx.beginPath();
+          ctx.moveTo(cx, paddingY - 10);
+          ctx.lineTo(cx, height - paddingY + 10);
+          ctx.stroke();
+        }
+        for (let y = Math.ceil(minY); y <= Math.floor(maxY); y++) {
+          const cy = toCanvasY(y);
+          ctx.beginPath();
+          ctx.moveTo(paddingX - 10, cy);
+          ctx.lineTo(width - paddingX + 10, cy);
+          ctx.stroke();
+        }
+
+        const originX = toCanvasX(0);
+        const originY = toCanvasY(0);
+
+        // 2. X축과 Y축 기준선
+        ctx.strokeStyle = "#64748b";
+        ctx.lineWidth = 1.8;
+        ctx.fillStyle = "#475569";
+
+        // X축 그리기
+        if (minY <= 0 && maxY >= 0) {
+          ctx.beginPath();
+          ctx.moveTo(paddingX - 15, originY);
+          ctx.lineTo(width - paddingX + 18, originY);
+          ctx.stroke();
+
+          // X축 화살표
+          ctx.beginPath();
+          ctx.moveTo(width - paddingX + 20, originY);
+          ctx.lineTo(width - paddingX + 12, originY - 4.5);
+          ctx.lineTo(width - paddingX + 12, originY + 4.5);
+          ctx.fill();
+
+          // x축 라벨
+          ctx.font = "italic bold 12px sans-serif";
+          ctx.fillText("x", width - paddingX + 22, originY + 4);
+        }
+
+        // Y축 그리기
+        if (minX <= 0 && maxX >= 0) {
+          ctx.beginPath();
+          ctx.moveTo(originX, height - paddingY + 15);
+          ctx.lineTo(originX, paddingY - 18);
+          ctx.stroke();
+
+          // Y축 화살표
+          ctx.beginPath();
+          ctx.moveTo(originX, paddingY - 20);
+          ctx.lineTo(originX - 4.5, paddingY - 12);
+          ctx.lineTo(originX + 4.5, paddingY - 12);
+          ctx.fill();
+
+          // y축 라벨
+          ctx.font = "italic bold 12px sans-serif";
+          ctx.fillText("y", originX - 15, paddingY - 14);
+        }
+
+        // 3. 축 눈금과 숫자 라벨
+        ctx.font = "10px sans-serif";
+        ctx.fillStyle = "#94a3b8";
+        for (let x = Math.ceil(minX); x <= Math.floor(maxX); x++) {
+          if (x === 0) continue;
+          const cx = toCanvasX(x);
+          // 작은 눈금 tick
+          ctx.strokeStyle = "#cbd5e1";
+          ctx.beginPath();
+          ctx.moveTo(cx, originY - 3);
+          ctx.lineTo(cx, originY + 3);
+          ctx.stroke();
+          ctx.fillText(String(x), cx - 4, Math.min(Math.max(originY + 14, 14), height - 8));
+        }
+        for (let y = Math.ceil(minY); y <= Math.floor(maxY); y++) {
+          if (y === 0) continue;
+          const cy = toCanvasY(y);
+          // 작은 눈금 tick
+          ctx.strokeStyle = "#cbd5e1";
+          ctx.beginPath();
+          ctx.moveTo(originX - 3, cy);
+          ctx.lineTo(originX + 3, cy);
+          ctx.stroke();
+          ctx.fillText(String(y), Math.min(Math.max(originX - 18, 4), width - 20), cy + 3.5);
+        }
+        // 원점 O
+        if (minX <= 0 && maxX >= 0 && minY <= 0 && maxY >= 0) {
+          ctx.font = "italic 11px sans-serif";
+          ctx.fillStyle = "#64748b";
+          ctx.fillText("O", originX - 12, originY + 13);
+        }
+
+        const functions = graphData.functions || [];
+
+        // 4. 메인 곡선 하단 부드러운 시각적 그라데이션 영역 (Area Fill)
+        if (functions.length > 0 && !functions[0].dashed) {
+          const mainFn = functions[0];
+          const grad = ctx.createLinearGradient(0, paddingY, 0, height - paddingY);
+          grad.addColorStop(0, "rgba(79, 70, 229, 0.12)");
+          grad.addColorStop(1, "rgba(79, 70, 229, 0.01)");
+
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          const baseCanvasY = (minY <= 0 && maxY >= 0) ? originY : toCanvasY(minY);
+
+          let fillStarted = false;
+          const steps = 200;
+          let firstCx = toCanvasX(minX);
+          let lastCx = toCanvasX(maxX);
+
+          for (let i = 0; i <= steps; i++) {
+            const x = minX + (i / steps) * (maxX - minX);
+            const y = safeEvalMath(mainFn.expr, x);
+            if (y !== null && isFinite(y)) {
+              const cx = toCanvasX(x);
+              const cy = Math.max(paddingY - 20, Math.min(height - paddingY + 20, toCanvasY(y)));
+              if (!fillStarted) {
+                ctx.moveTo(cx, baseCanvasY);
+                ctx.lineTo(cx, cy);
+                firstCx = cx;
+                fillStarted = true;
+              } else {
+                ctx.lineTo(cx, cy);
+                lastCx = cx;
+              }
+            }
+          }
+          if (fillStarted) {
+            ctx.lineTo(lastCx, baseCanvasY);
+            ctx.lineTo(firstCx, baseCanvasY);
+            ctx.closePath();
+            ctx.fill();
+          }
+        }
+
+        // 5. 다중 함수 곡선들 그리기 (단일 좌표평면에 모든 그래프 동시 시각화)
+        const defaultPalette = ["#4f46e5", "#dc2626", "#059669", "#d97706", "#7c3aed", "#0891b2"];
+
+        // 5-A. 포개진(일치) 곡선 그룹들을 위한 은은한 배경 하이라이트 글로우 베이스 선행 렌더링
+        coincidingInfo.groups.forEach(group => {
+          const leaderFn = functions[group[0]];
+          ctx.save();
+          ctx.strokeStyle = "rgba(245, 158, 11, 0.28)";
+          ctx.lineWidth = 7.5;
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+          ctx.setLineDash([]);
+          ctx.beginPath();
+          let started = false;
+          const steps = 400;
+          for (let i = 0; i <= steps; i++) {
+            const x = minX + (i / steps) * (maxX - minX);
+            const y = safeEvalMath(leaderFn.expr, x);
+            if (y === null || !isFinite(y)) { started = false; continue; }
+            const cx = toCanvasX(x);
+            const cy = toCanvasY(y);
+            if (cy < -80 || cy > height + 80) { started = false; continue; }
+            if (!started) { ctx.moveTo(cx, cy); started = true; }
+            else { ctx.lineTo(cx, cy); }
+          }
+          ctx.stroke();
+          ctx.restore();
+        });
+
+        // 5-B. 개별 함수 곡선 렌더링
+        // (포개진 경우 투톤 교차 대시 패턴으로 두 색상이 번갈아 나타나 둘 다 100% 보이게 렌더링)
+        functions.forEach((fn, idx) => {
+          const strokeColor = fn.color || defaultPalette[idx % defaultPalette.length];
+          ctx.strokeStyle = strokeColor;
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+
+          const group = coincidingInfo.getGroup(idx);
+          const isCoinciding = group && group.length > 1;
+
+          if (isCoinciding) {
+            // 포개진 곡선일 때: 두 색상이 번갈아 교차하는 Zebra Two-Tone Dash 패턴 적용
+            const subIdx = group.indexOf(idx);
+            const dashLen = 14;
+            ctx.lineWidth = 4.2;
+            if (group.length === 2) {
+              // 2개 함수 포개짐: 14px 선, 14px 빈틈 -> 서로의 빈틈을 정확히 메워 교차 색상 선 완성
+              ctx.setLineDash([dashLen, dashLen]);
+              ctx.lineDashOffset = subIdx * dashLen;
+            } else {
+              // 3개 이상 포개짐
+              ctx.setLineDash([dashLen, dashLen * (group.length - 1)]);
+              ctx.lineDashOffset = subIdx * dashLen;
+            }
+          } else {
+            // 일반 곡선
+            ctx.lineWidth = fn.dashed ? 2.8 : 3.5;
+            ctx.lineDashOffset = 0;
+            if (fn.dashed) {
+              ctx.setLineDash([7, 5]);
+            } else {
+              ctx.setLineDash([]);
+            }
+          }
+
+          ctx.beginPath();
+          let started = false;
+          const steps = 400; // 정밀한 부드러운 곡선
+          let lastValidPt = null;
+
+          for (let i = 0; i <= steps; i++) {
+            const x = minX + (i / steps) * (maxX - minX);
+            const y = safeEvalMath(fn.expr, x);
+
+            if (y === null || isNaN(y) || !isFinite(y)) {
+              started = false;
+              continue;
+            }
+
+            const cx = toCanvasX(x);
+            const cy = toCanvasY(y);
+
+            // 화면을 과도하게 벗어난 좌표는 자연스럽게 클램핑
+            if (cy < -80 || cy > height + 80) {
+              started = false;
+              continue;
+            }
+
+            if (!started) {
+              ctx.moveTo(cx, cy);
+              started = true;
+            } else {
+              ctx.lineTo(cx, cy);
+            }
+            if (cx <= width - 35 && cy >= 30 && cy <= height - 30) {
+              lastValidPt = { cx, cy, x, y };
+            }
+          }
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.lineDashOffset = 0;
+
+          // 여러 그래프가 동시에 그려질 때 태그가 서로 겹치지 않도록 분산 오프셋 적용
+          if (lastValidPt && fn.label) {
+            ctx.save();
+            ctx.font = "bold 11px 'Pretendard', sans-serif";
+            const tagText = fn.label + (isCoinciding ? " (포개어짐 🔗)" : "");
+            const textMetrics = ctx.measureText(tagText);
+            const boxW = textMetrics.width + 14;
+            const boxH = 20;
+            const tagX = Math.min(lastValidPt.cx + 4, width - boxW - 8);
+            const tagY = Math.max(12, Math.min(lastValidPt.cy - 10 + (idx * 22), height - boxH - 8));
+
+            ctx.fillStyle = strokeColor;
+            ctx.shadowColor = "rgba(0,0,0,0.15)";
+            ctx.shadowBlur = 4;
+            ctx.beginPath();
+            ctx.roundRect(tagX, tagY, boxW, boxH, 5);
+            ctx.fill();
+
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = "#ffffff";
+            ctx.fillText(tagText, tagX + 7, tagY + 14);
+            ctx.restore();
+          }
+        });
+
+        // 5-C. 포개진 곡선 위에 '✨ 완전히 포개어짐 (일치)' 하이라이트 배지 및 콜아웃 렌더링
+        coincidingInfo.groups.forEach((group) => {
+          const groupFns = group.map(idx => functions[idx]);
+          // 캔버스 가로 중앙 근처에서 가장 안정적인 대표 점 찾기
+          let bestPt = null;
+          let minDiffFromCenter = Infinity;
+          const centerX = (minX + maxX) / 2;
+          for (let s = 15; s <= 85; s++) {
+            const x = minX + (s / 100) * (maxX - minX);
+            const y = safeEvalMath(groupFns[0].expr, x);
+            if (y !== null && isFinite(y)) {
+              const cx = toCanvasX(x);
+              const cy = toCanvasY(y);
+              if (cx > paddingX + 50 && cx < width - paddingX - 140 && cy > paddingY + 35 && cy < height - paddingY - 35) {
+                const diff = Math.abs(x - centerX);
+                if (diff < minDiffFromCenter) {
+                  minDiffFromCenter = diff;
+                  bestPt = { cx, cy, x, y };
+                }
+              }
+            }
+          }
+
+          if (bestPt) {
+            ctx.save();
+            const titleText = "✨ 평행이동 결과 완전히 포개어짐 (두 그래프 일치)";
+            const exprText = groupFns.map(f => f.label || f.expr).join("  ≡  ");
+            ctx.font = "bold 10px sans-serif";
+            const w1 = ctx.measureText(titleText).width;
+            ctx.font = "bold 10px sans-serif";
+            const w2 = ctx.measureText(exprText).width + groupFns.length * 10;
+            const badgeW = Math.max(w1, w2) + 24;
+            const badgeH = 36;
+
+            let bx = bestPt.cx - badgeW / 2;
+            let by = bestPt.cy - badgeH - 16;
+            if (bx < 10) bx = 10;
+            if (bx + badgeW > width - 10) bx = width - badgeW - 10;
+            if (by < 10) by = bestPt.cy + 16;
+
+            // 포개진 점으로의 화살표/지시선
+            ctx.strokeStyle = "#f59e0b";
+            ctx.lineWidth = 1.5;
+            ctx.setLineDash([2.5, 2]);
+            ctx.beginPath();
+            ctx.moveTo(bestPt.cx, bestPt.cy);
+            ctx.lineTo(bx + badgeW / 2, by < bestPt.cy ? by + badgeH : by);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // 대표 점에 앰버 펄스 도트
+            ctx.beginPath();
+            ctx.arc(bestPt.cx, bestPt.cy, 5, 0, Math.PI * 2);
+            ctx.fillStyle = "#f59e0b";
+            ctx.fill();
+            ctx.strokeStyle = "#ffffff";
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // 뱃지 배경 카드
+            ctx.shadowColor = "rgba(245, 158, 11, 0.28)";
+            ctx.shadowBlur = 8;
+            ctx.fillStyle = "rgba(255, 255, 255, 0.97)";
+            ctx.strokeStyle = "#f59e0b";
+            ctx.lineWidth = 1.6;
+            ctx.beginPath();
+            ctx.roundRect(bx, by, badgeW, badgeH, 6);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.shadowBlur = 0;
+            // 제목 라인
+            ctx.fillStyle = "#b45309";
+            ctx.font = "bold 9.5px sans-serif";
+            ctx.fillText(titleText, bx + 10, by + 13.5);
+
+            // 두 번째 라인: 함수별 도트 + 수식
+            let curX = bx + 10;
+            groupFns.forEach((f, fi) => {
+              const dotColor = f.color || defaultPalette[group[fi] % defaultPalette.length];
+              ctx.fillStyle = dotColor;
+              ctx.beginPath();
+              ctx.arc(curX + 3.5, by + 26, 3.5, 0, Math.PI * 2);
+              ctx.fill();
+              curX += 9;
+
+              ctx.fillStyle = "#0f172a";
+              ctx.font = "bold 9.5px sans-serif";
+              const labelPart = f.label || f.expr;
+              ctx.fillText(labelPart, curX, by + 28);
+              curX += ctx.measureText(labelPart).width + 3;
+
+              if (fi < groupFns.length - 1) {
+                ctx.fillStyle = "#d97706";
+                ctx.font = "bold 10px sans-serif";
+                ctx.fillText(" ≡ ", curX, by + 28);
+                curX += ctx.measureText(" ≡ ").width + 2;
+              }
+            });
+
+            ctx.restore();
+          }
+        });
+
+        // 5-D. 상단 우측 미니 비교 범례 카드 렌더링
+        if (functions.length > 1) {
+          ctx.save();
+          const legendW = 175;
+          const legendH = functions.length * 20 + 12;
+          const legX = width - legendW - 12;
+          const legY = 12;
+
+          ctx.fillStyle = "rgba(255, 255, 255, 0.94)";
+          ctx.strokeStyle = "#e2e8f0";
+          ctx.lineWidth = 1;
+          ctx.shadowColor = "rgba(0,0,0,0.06)";
+          ctx.shadowBlur = 4;
+          ctx.beginPath();
+          ctx.roundRect(legX, legY, legendW, legendH, 6);
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.shadowBlur = 0;
+          ctx.font = "bold 10px sans-serif";
+          functions.forEach((fn, i) => {
+            const itemY = legY + 16 + i * 20;
+            const color = fn.color || defaultPalette[i % defaultPalette.length];
+            const group = coincidingInfo.getGroup(i);
+            const isCoinciding = group && group.length > 1;
+
+            if (isCoinciding) {
+              // 포개진 항목의 선 마커는 투톤 교차 선 마커
+              const otherIdx = group.find(x => x !== i) ?? i;
+              const color2 = functions[otherIdx]?.color || defaultPalette[otherIdx % defaultPalette.length];
+              ctx.lineWidth = 3.2;
+              ctx.strokeStyle = color;
+              ctx.beginPath();
+              ctx.moveTo(legX + 8, itemY - 3);
+              ctx.lineTo(legX + 15, itemY - 3);
+              ctx.stroke();
+
+              ctx.strokeStyle = color2;
+              ctx.beginPath();
+              ctx.moveTo(legX + 15, itemY - 3);
+              ctx.lineTo(legX + 22, itemY - 3);
+              ctx.stroke();
+            } else {
+              // 색상 선 마커
+              ctx.strokeStyle = color;
+              ctx.lineWidth = fn.dashed ? 2 : 2.5;
+              if (fn.dashed) ctx.setLineDash([3, 2]);
+              else ctx.setLineDash([]);
+              ctx.beginPath();
+              ctx.moveTo(legX + 8, itemY - 3);
+              ctx.lineTo(legX + 22, itemY - 3);
+              ctx.stroke();
+              ctx.setLineDash([]);
+            }
+
+            // 라벨 텍스트
+            ctx.fillStyle = "#1e293b";
+            let label = fn.label || fn.expr;
+            if (isCoinciding) {
+              label += " [포개어짐 🔗]";
+            }
+            if (label.length > 19) label = label.substring(0, 18) + "…";
+            ctx.fillText(label, legX + 26, itemY);
+          });
+          ctx.restore();
+        }
+
+        // 6. 좌표 점(points) 렌더링 + x축/y축 점선 투영선 (시각적 연결성 완성)
+        const points = graphData.points || [];
+        points.forEach((pt) => {
+          const cx = toCanvasX(pt.x);
+          const cy = toCanvasY(pt.y);
+
+          if (cx >= paddingX - 10 && cx <= width - paddingX + 10 && cy >= paddingY - 10 && cy <= height - paddingY + 10) {
+            // 점(x, y)에서 x축으로 내리는 수직 점선
+            ctx.strokeStyle = "#94a3b8";
+            ctx.lineWidth = 1.2;
+            ctx.setLineDash([3, 3]);
+
+            if (minY <= 0 && maxY >= 0) {
+              ctx.beginPath();
+              ctx.moveTo(cx, cy);
+              ctx.lineTo(cx, originY);
+              ctx.stroke();
+            }
+
+            // 점(x, y)에서 y축으로 내리는 수평 점선
+            if (minX <= 0 && maxX >= 0) {
+              ctx.beginPath();
+              ctx.moveTo(cx, cy);
+              ctx.lineTo(originX, cy);
+              ctx.stroke();
+            }
+            ctx.setLineDash([]);
+
+            // 점(Point) 원형 마커 (흰색 테두리 + 선명한 포인트 색상)
+            const pointColor = pt.color || "#e11d48";
+            ctx.beginPath();
+            ctx.arc(cx, cy, 5.5, 0, Math.PI * 2);
+            ctx.fillStyle = pointColor;
+            ctx.fill();
+            ctx.strokeStyle = "#ffffff";
+            ctx.lineWidth = 2.2;
+            ctx.stroke();
+
+            // 점 라벨 (미니 말풍선 배지)
+            if (pt.label) {
+              ctx.save();
+              ctx.font = "bold 11px sans-serif";
+              const labelText = pt.label;
+              const textMetrics = ctx.measureText(labelText);
+              const badgeW = textMetrics.width + 10;
+              const badgeH = 19;
+              let badgeX = cx + 8;
+              let badgeY = cy - 20;
+
+              if (badgeX + badgeW > width - 6) badgeX = cx - badgeW - 6;
+              if (badgeY < 6) badgeY = cy + 8;
+
+              // 말풍선 배경
+              ctx.fillStyle = "rgba(255, 255, 255, 0.94)";
+              ctx.strokeStyle = "#cbd5e1";
+              ctx.lineWidth = 1;
+              ctx.shadowColor = "rgba(0,0,0,0.08)";
+              ctx.shadowBlur = 4;
+              ctx.beginPath();
+              ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 4);
+              ctx.fill();
+              ctx.stroke();
+
+              // 말풍선 텍스트
+              ctx.shadowBlur = 0;
+              ctx.fillStyle = "#0f172a";
+              ctx.fillText(labelText, badgeX + 5, badgeY + 13.5);
+              ctx.restore();
+            }
+          }
+        });
+      }, [graphData, coincidingInfo]);
+
+      const handleDownload = () => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const a = document.createElement("a");
+        a.href = canvas.toDataURL("image/png");
+        a.download = `math-graph-${Date.now()}.png`;
+        a.click();
+      };
+
+      const handleExportToScratch = () => {
+        const canvas = canvasRef.current;
+        if (!canvas || !onExportToScratchpad) return;
+        onExportToScratchpad(canvas.toDataURL("image/png"));
+      };
+
+      return (
+        <div className="bg-slate-50 border border-indigo-200/90 rounded-2xl p-3.5 sm:p-4 flex flex-col gap-2.5 shadow-sm animate-fade-in">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <span className="text-xs sm:text-sm font-extrabold text-indigo-950 flex items-center gap-1.5">
+              <span>📊</span>
+              <span>{graphData.title || "수학 개념 시각화 그래프 그림판"}</span>
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleExportToScratch}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition flex items-center gap-1.5"
+                title="좌측 직접 풀기 드로잉 캔버스에 이 그래프를 불러와서 직접 펜으로 덧그리며 학습합니다"
+              >
+                <span>✏️ 내 필기 노트로 가져오기</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleDownload}
+                className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 transition"
+              >
+                💾 저장
+              </button>
+            </div>
+          </div>
+
+          {/* 그래프 포개어짐 (일치) 시각화 안내 배너 */}
+          {coincidingInfo.groups.length > 0 && (
+            <div className="flex items-center gap-2.5 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-300 text-amber-950 px-3.5 py-2.5 rounded-xl text-xs font-medium shadow-xs">
+              <span className="text-base shrink-0">✨</span>
+              <div className="leading-snug">
+                <span className="font-extrabold text-amber-900">그래프 포개어짐 (완전 일치) 확인: </span>
+                <span>
+                  평행이동/변환 결과 두 그래프 곡선이 완전히 포개어졌습니다! 하나의 곡선만 보여 묻히지 않도록 선명한 <b>교차 투톤 줄무늬(두 색상 교대)</b>로 두 곡선이 모두 보이게 렌더링되었습니다.
+                </span>
+              </div>
+            </div>
+          )}
+
+          <div className="bg-white rounded-xl border border-slate-200/90 overflow-hidden shadow-inner">
+            <canvas
+              ref={canvasRef}
+              width={640}
+              height={300}
+              className="w-full h-[240px] sm:h-[280px] block"
+            />
+          </div>
+
+          {graphData.functions && (
+            <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+              <span className="font-bold text-slate-500">함수 곡선:</span>
+              {graphData.functions.map((fn, idx) => {
+                const isCoin = coincidingInfo.isCoinciding(idx);
+                return (
+                  <span
+                    key={idx}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border font-semibold shadow-2xs ${
+                      isCoin
+                        ? "border-amber-400 bg-amber-50/40 text-amber-950 ring-1 ring-amber-300/50"
+                        : "border-slate-200 text-slate-800"
+                    }`}
+                  >
+                    <span
+                      className={`w-3 h-1 rounded-full ${fn.dashed ? "border-b-2 border-dashed" : ""}`}
+                      style={{ backgroundColor: fn.color || "#4f46e5" }}
+                    />
+                    <span>{fn.label || fn.expr}</span>
+                    {isCoin && (
+                      <span className="text-[10px] bg-amber-200/70 text-amber-900 px-1.5 py-0.2 rounded font-extrabold">
+                        포개어짐 🔗
+                      </span>
+                    )}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+
+          {graphData.description && (
+            <div className="text-xs sm:text-sm text-slate-700 bg-white/95 p-3 rounded-xl border border-slate-200/80 leading-relaxed flex items-start gap-2 shadow-2xs">
+              <span className="text-base shrink-0">💡</span>
+              <MathText text={graphData.description} />
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // 스마트 수학 손글씨 연습장
+    function DrawingCanvas({ onSubmitCanvasImage, isLoading, externalBackgroundImage }) {
+      const canvasRef = useRef(null);
+      const [isDrawing, setIsDrawing] = useState(false);
+      const [tool, setTool] = useState("pen");
+      const [color, setColor] = useState("#0f172a");
+      const [lineWidth, setLineWidth] = useState(3);
+      const [history, setHistory] = useState([]);
+      const [hasStrokes, setHasStrokes] = useState(false);
+      const [noteComment, setNoteComment] = useState("");
+
+      const initCanvasBackground = (ctx, width, height) => {
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, width, height);
+        ctx.strokeStyle = "#f1f5f9";
+        ctx.lineWidth = 1;
+        const step = 28;
+        for (let x = 0; x < width; x += step) {
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, height);
+          ctx.stroke();
+        }
+        for (let y = 0; y < height; y += step) {
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(width, y);
+          ctx.stroke();
+        }
+      };
+
+      useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext("2d");
+        initCanvasBackground(ctx, canvas.width, canvas.height);
+        setHistory([canvas.toDataURL("image/png")]);
+      }, []);
+
+      // 외부에서 튜터 그래프 이미지를 내 그림판으로 로드했을 때
+      useEffect(() => {
+        if (!externalBackgroundImage) return;
+        const img = new Image();
+        img.onload = () => {
+          const canvas = canvasRef.current;
+          if (!canvas) return;
+          const ctx = canvas.getContext("2d");
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          saveSnapshot();
+          setHasStrokes(true);
+        };
+        img.src = externalBackgroundImage;
+      }, [externalBackgroundImage]);
+
+      const saveSnapshot = () => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        setHistory(prev => [...prev.slice(-19), canvas.toDataURL("image/png")]);
+      };
+
+      const getCoordinates = (e) => {
+        const canvas = canvasRef.current;
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+
+        if (e.touches && e.touches.length > 0) {
+          return {
+            x: (e.touches[0].clientX - rect.left) * scaleX,
+            y: (e.touches[0].clientY - rect.top) * scaleY
+          };
+        }
+        return {
+          x: (e.clientX - rect.left) * scaleX,
+          y: (e.clientY - rect.top) * scaleY
+        };
+      };
+
+      const startDrawing = (e) => {
+        e.preventDefault();
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext("2d");
+        const { x, y } = getCoordinates(e);
+
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+
+        if (tool === "eraser") {
+          ctx.globalCompositeOperation = "source-over";
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = 22;
+        } else if (tool === "highlighter") {
+          ctx.globalCompositeOperation = "multiply";
+          ctx.strokeStyle = "rgba(253, 224, 71, 0.45)";
+          ctx.lineWidth = 16;
+        } else {
+          ctx.globalCompositeOperation = "source-over";
+          ctx.strokeStyle = color;
+          ctx.lineWidth = lineWidth;
+        }
+
+        setIsDrawing(true);
+        setHasStrokes(true);
+      };
+
+      const draw = (e) => {
+        if (!isDrawing) return;
+        e.preventDefault();
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext("2d");
+        const { x, y } = getCoordinates(e);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+      };
+
+      const stopDrawing = () => {
+        if (!isDrawing) return;
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext("2d");
+        ctx.closePath();
+        ctx.globalCompositeOperation = "source-over";
+        setIsDrawing(false);
+        saveSnapshot();
+      };
+
+      const handleUndo = () => {
+        if (history.length <= 1) return;
+        const newHistory = history.slice(0, -1);
+        const prevDataUrl = newHistory[newHistory.length - 1];
+        const img = new Image();
+        img.onload = () => {
+          const canvas = canvasRef.current;
+          const ctx = canvas.getContext("2d");
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0);
+        };
+        img.src = prevDataUrl;
+        setHistory(newHistory);
+        if (newHistory.length === 1) setHasStrokes(false);
+      };
+
+      const handleClear = () => {
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext("2d");
+        initCanvasBackground(ctx, canvas.width, canvas.height);
+        saveSnapshot();
+        setHasStrokes(false);
+      };
+
+      const drawSampleHandwriting = () => {
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext("2d");
+        initCanvasBackground(ctx, canvas.width, canvas.height);
+
+        ctx.font = "italic 21px 'Pretendard', sans-serif";
+        ctx.fillStyle = "#1e293b";
+        ctx.fillText("(1) 조건 (가)에서  f(x) = x² + ax + b", 32, 54);
+        ctx.fillText("(2) 조건 (나)  lim (x² + ax + b) / x = 2", 32, 106);
+        ctx.font = "15px 'Pretendard', sans-serif";
+        ctx.fillText("x → 0", 132, 126);
+
+        ctx.font = "italic 21px 'Pretendard', sans-serif";
+        ctx.fillStyle = "#2563eb";
+        ctx.fillText("분모가 0으로 가므로 f(0) = b = 0", 32, 174);
+
+        ctx.fillStyle = "#dc2626";
+        ctx.fillText("그 다음 lim (x² + ax) / x = 2 에서 막혔어요!", 32, 224);
+
+        setHasStrokes(true);
+        saveSnapshot();
+      };
+
+      const handleSendCanvas = () => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const dataUrl = canvas.toDataURL("image/png");
+        onSubmitCanvasImage(dataUrl, noteComment);
+        setNoteComment("");
+      };
+
+      const colors = [
+        { code: "#0f172a", name: "검정" },
+        { code: "#2563eb", name: "파랑" },
+        { code: "#dc2626", name: "빨강 (막힌 곳 표시)" },
+        { code: "#059669", name: "초록" }
+      ];
+
+      return (
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-100 p-2.5 rounded-xl border border-slate-200">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setTool("pen")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
+                  tool === "pen" ? "bg-indigo-600 text-white shadow-sm" : "bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                ✏️ 펜
+              </button>
+              <button
+                type="button"
+                onClick={() => setTool("highlighter")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
+                  tool === "highlighter" ? "bg-amber-400 text-slate-900 shadow-sm" : "bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                🖍️ 형광펜
+              </button>
+              <button
+                type="button"
+                onClick={() => setTool("eraser")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
+                  tool === "eraser" ? "bg-slate-800 text-white shadow-sm" : "bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                🧹 지우개
+              </button>
+
+              <div className="h-4 w-px bg-slate-300 mx-1" />
+
+              <div className="flex items-center gap-1.5">
+                {colors.map((c) => (
+                  <button
+                    key={c.code}
+                    type="button"
+                    title={c.name}
+                    onClick={() => {
+                      setTool("pen");
+                      setColor(c.code);
+                    }}
+                    className={`w-6 h-6 rounded-full border-2 transition transform ${
+                      color === c.code && tool === "pen" ? "scale-110 border-indigo-600 ring-2 ring-indigo-200" : "border-white"
+                    }`}
+                    style={{ backgroundColor: c.code }}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={drawSampleHandwriting}
+                className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition"
+              >
+                ✨ 예시 손글씨 자동 채우기
+              </button>
+              <button
+                type="button"
+                onClick={handleUndo}
+                disabled={history.length <= 1}
+                className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white text-slate-700 hover:bg-slate-50 border border-slate-200 disabled:opacity-40"
+              >
+                ↩ 실행 취소
+              </button>
+              <button
+                type="button"
+                onClick={handleClear}
+                className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white text-rose-600 hover:bg-rose-50 border border-slate-200"
+              >
+                🗑️ 지우기
+              </button>
+            </div>
+          </div>
+
+          <div className="relative rounded-xl overflow-hidden border-2 border-indigo-200 shadow-inner bg-white">
+            <canvas
+              ref={canvasRef}
+              width={680}
+              height={280}
+              onMouseDown={startDrawing}
+              onMouseMove={draw}
+              onMouseUp={stopDrawing}
+              onMouseLeave={stopDrawing}
+              onTouchStart={startDrawing}
+              onTouchMove={draw}
+              onTouchEnd={stopDrawing}
+              className="w-full h-[250px] cursor-crosshair touch-none block"
+            />
+            {!hasStrokes && (
+              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-slate-400 gap-1 px-4 text-center">
+                <span className="text-sm font-semibold">마우스나 태블릿 펜으로 여기에 직접 풀이 과정을 써보세요!</span>
+                <span className="text-xs">풀다가 막힌 부분에 표시를 하거나 상단의 [✨ 예시 손글씨 자동 채우기]를 눌러 테스트해 보세요</span>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="text"
+              value={noteComment}
+              onChange={(e) => setNoteComment(e.target.value)}
+              placeholder="(선택) 예: 2번째 줄에서 x를 어떻게 약분하는지 막혔어요"
+              className="flex-1 px-3.5 py-2.5 text-sm rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            <button
+              type="button"
+              onClick={handleSendCanvas}
+              disabled={isLoading || (!hasStrokes && !noteComment.trim())}
+              className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white font-semibold text-sm shadow-sm transition flex items-center justify-center gap-2 whitespace-nowrap"
+            >
+              <span>📤 내 필기 보여주고 코칭받기</span>
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // 튜터 코칭 말풍선 카드
+    function TutorMessageCard({ message, onAskDeeperExplanation, onAskGraphExplanation, onExportToScratchpad, onGenerateSimilar }) {
+      const [showWhyHint, setShowWhyHint] = useState(false);
+      const [showConcept, setShowConcept] = useState(false);
+
+      const data = message.tutorData;
+      if (!data) {
+        return (
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm text-sm text-slate-800">
+            <MathText text={message.text} />
+          </div>
+        );
+      }
+
+      const isSolved = data.diagnosisType === "SOLVED" || /정답|해결|축하|도달|완료/.test(data.statusBadge || "");
+
+      const badgeColors = {
+        STUCK_ON_RIGHT_TRACK: "bg-emerald-50 text-emerald-700 border-emerald-200",
+        WRONG_DIRECTION: "bg-amber-50 text-amber-800 border-amber-200",
+        CONDITION_ANALYSIS: "bg-indigo-50 text-indigo-700 border-indigo-200",
+        CONCEPT_EXPLANATION: "bg-sky-50 text-sky-700 border-sky-200",
+        SOLVED: "bg-purple-50 text-purple-700 border-purple-200"
+      };
+
+      const badgeClass = badgeColors[data.diagnosisType] || "bg-indigo-50 text-indigo-700 border-indigo-200";
+
+      return (
+        <div className="bg-white border border-slate-200/90 rounded-2xl p-4 sm:p-5 shadow-sm animate-fade-in flex flex-col gap-3.5 w-full">
+          {/* 한 문제를 풀었을 때 나타나는 이해도 점검 유사문제 축하 배너 */}
+          {isSolved && (
+            <div className="bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-indigo-500/10 border-2 border-emerald-300 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 animate-fade-in shadow-xs">
+              <div className="flex items-center gap-3">
+                <span className="text-3xl shrink-0">🎉</span>
+                <div>
+                  <div className="text-sm font-extrabold text-emerald-950">문제를 완벽하게 해결하셨습니다!</div>
+                  <div className="text-xs text-emerald-800 mt-0.5">
+                    이 개념을 진짜 내 것으로 체화했는지, 숫자/조건이 변형된 <strong>'이해도 점검 쌍둥이 문제'</strong>를 풀어서 확인해 보세요!
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => onGenerateSimilar && onGenerateSimilar(0)}
+                className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs sm:text-sm shadow-sm transition whitespace-nowrap shrink-0 flex items-center gap-1.5"
+              >
+                <span>🎯 이해도 확인 유사문제 풀기 →</span>
+              </button>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${badgeClass}`}>
+              {data.statusBadge}
+            </span>
+            <span className="text-[11px] text-slate-400 font-medium">소크라테스 코칭 에이전트</span>
+          </div>
+
+          <div className="text-sm text-slate-700 bg-slate-50/80 p-3.5 rounded-xl border border-slate-100">
+            <div className="text-xs font-bold text-slate-500 mb-1">📋 풀이 과정 진단 & 조건 분석</div>
+            <MathText text={data.diagnosis} />
+          </div>
+
+          <div className="text-sm text-slate-900 px-1">
+            <div className="text-xs font-bold text-indigo-600 mb-1.5">🧭 다음 한 걸음 코칭 (정답 대신 방향 제시)</div>
+            <MathText text={data.guidance} />
+          </div>
+
+          {/* 그래프/그림판 시각화 영역 */}
+          {data.graphData && (
+            <div className="mt-1">
+              <TutorGraphCanvas
+                graphData={data.graphData}
+                onExportToScratchpad={onExportToScratchpad}
+              />
+            </div>
+          )}
+
+          {data.followUpPrompt && (
+            <div className="bg-indigo-50/70 border border-indigo-100 rounded-xl p-3 flex flex-col gap-1.5">
+              <div className="text-xs font-bold text-indigo-900 flex items-center gap-1.5">
+                <span>💬</span>
+                <span>스스로 생각해보는 유도 질문:</span>
+              </div>
+              <MathText text={data.followUpPrompt} className="text-xs sm:text-sm font-medium text-indigo-950" />
+            </div>
+          )}
+
+          <div className="pt-2 border-t border-slate-100 flex flex-col gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {data.whyThisHint && (
+                <button
+                  type="button"
+                  onClick={() => setShowWhyHint(!showWhyHint)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition flex items-center gap-1.5 ${
+                    showWhyHint
+                      ? "bg-amber-100 border-amber-300 text-amber-900"
+                      : "bg-amber-50/70 hover:bg-amber-100/80 border-amber-200 text-amber-800"
+                  }`}
+                >
+                  <span>🤔 왜 이런 힌트가 나오나요?</span>
+                  <span>{showWhyHint ? "▲" : "▼"}</span>
+                </button>
+              )}
+
+              {data.relatedConcept && (
+                <button
+                  type="button"
+                  onClick={() => setShowConcept(!showConcept)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition flex items-center gap-1.5 ${
+                    showConcept
+                      ? "bg-sky-100 border-sky-300 text-sky-900"
+                      : "bg-sky-50/70 hover:bg-sky-100/80 border-sky-200 text-sky-800"
+                  }`}
+                >
+                  <span>📘 관련 개념 학습: {data.relatedConcept.title}</span>
+                  <span>{showConcept ? "▲" : "▼"}</span>
+                </button>
+              )}
+
+              {onAskGraphExplanation && !data.graphData && (
+                <button
+                  type="button"
+                  onClick={() => onAskGraphExplanation(data)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-50 hover:bg-emerald-100/90 border border-emerald-300 text-emerald-800 transition flex items-center gap-1.5 shadow-2xs"
+                >
+                  <span>📊 그래프로 그려서 설명해줘!</span>
+                </button>
+              )}
+
+              {onGenerateSimilar && (
+                <button
+                  type="button"
+                  onClick={() => onGenerateSimilar(0)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-purple-50 hover:bg-purple-100 border border-purple-300 text-purple-800 transition flex items-center gap-1.5 shadow-2xs"
+                  title="이 문제를 이해했는지 확인하기 위한 쌍둥이 유사문제를 출제합니다"
+                >
+                  <span>🎯 이해도 확인 유사문제 풀기</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => onAskDeeperExplanation(data)}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 transition ml-auto"
+              >
+                🙋‍♂️ 이 힌트가 아직 어려워요 (쉽게 다시 설명 듣기)
+              </button>
+            </div>
+
+            {showWhyHint && data.whyThisHint && (
+              <div className="bg-amber-50/90 border border-amber-200 rounded-xl p-3.5 text-xs sm:text-sm text-amber-950 animate-fade-in">
+                <div className="font-bold mb-1">💡 힌트 도출 원리 (왜 문제에서 이 단서를 떠올려야 할까요?)</div>
+                <MathText text={data.whyThisHint} />
+              </div>
+            )}
+
+            {showConcept && data.relatedConcept && (
+              <div className="bg-sky-50/90 border border-sky-200 rounded-xl p-3.5 text-xs sm:text-sm text-sky-950 animate-fade-in">
+                <div className="font-bold mb-1.5 text-sky-900">
+                  📖 기초 개념 카드: {data.relatedConcept.title}
+                </div>
+                <MathText text={data.relatedConcept.explanation} />
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // 메인 애플리케이션
+    function App() {
+      const [selectedProblemId, setSelectedProblemId] = useState(window.SAMPLE_PROBLEMS[0].id);
+      const [problemText, setProblemText] = useState(window.SAMPLE_PROBLEMS[0].problemText);
+      const [problemImage, setProblemImage] = useState(null);
+      const [problemPdfInfo, setProblemPdfInfo] = useState(null);
+
+      // 선생님 전용 비밀 기준 정석 해설지 상태
+      const [solutionGuideText, setSolutionGuideText] = useState(window.SAMPLE_PROBLEMS[0].solutionGuideText || "");
+      const [solutionGuideImage, setSolutionGuideImage] = useState(null);
+      const [solutionGuidePdfInfo, setSolutionGuidePdfInfo] = useState(null);
+      const [showSecretSolutionPanel, setShowSecretSolutionPanel] = useState(false);
+
+      const [isEditingProblem, setIsEditingProblem] = useState(false);
+
+      // 학생 풀이 입력 탭 ("text" | "canvas" | "file")
+      const [inputTab, setInputTab] = useState("text");
+      const [studentTextInput, setStudentTextInput] = useState("");
+      const [uploadedSolutionImage, setUploadedSolutionImage] = useState(null);
+      const [uploadedSolutionPdfInfo, setUploadedSolutionPdfInfo] = useState(null);
+      const [fileCaption, setFileCaption] = useState("");
+      const [externalCanvasBg, setExternalCanvasBg] = useState(null);
+
+      const [messages, setMessages] = useState([]);
+      const [isLoading, setIsLoading] = useState(false);
+      const [isProcessingPdf, setIsProcessingPdf] = useState(false);
+
+      const [similarProblemModalOpen, setSimilarProblemModalOpen] = useState(false);
+      const [currentSimilarProblem, setCurrentSimilarProblem] = useState(null);
+      const [showSimilarHint, setShowSimilarHint] = useState(false);
+      const [isGeneratingSimilar, setIsGeneratingSimilar] = useState(false);
+
+      // [핵심] API 키 관리 상태
+      const [apiKey, setApiKey] = useState(() => localStorage.getItem("MATH_TUTOR_GEMINI_KEY") || "");
+      const [tempApiKeyInput, setTempApiKeyInput] = useState(() => localStorage.getItem("MATH_TUTOR_GEMINI_KEY") || "");
+      const [showApiModal, setShowApiModal] = useState(false);
+      const [showKeyPassword, setShowKeyPassword] = useState(false);
+      const [isTestingKey, setIsTestingKey] = useState(false);
+      const [keyTestResult, setKeyTestResult] = useState(null); // { success: boolean, msg: string }
+
+      const chatEndRef = useRef(null);
+      const currentPreset = window.SAMPLE_PROBLEMS.find(p => p.id === selectedProblemId) || null;
+
+      useEffect(() => {
+        resetCoachingSession(window.SAMPLE_PROBLEMS[0]);
+        // 저장된 API 키가 있으면 내 계정의 최적 사용 가능 모델 자동 감지 & 연결
+        const savedKey = localStorage.getItem("MATH_TUTOR_GEMINI_KEY");
+        if (savedKey && savedKey.trim()) {
+          window.GeminiTutorService.testApiKey(savedKey.trim()).catch(() => {});
+        }
+      }, []);
+
+      useEffect(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      }, [messages, isLoading]);
+
+      // API 키 저장 및 로컬 스토리지 반영
+      const handleSaveApiKey = () => {
+        const cleanKey = tempApiKeyInput.trim();
+        setApiKey(cleanKey);
+        localStorage.setItem("MATH_TUTOR_GEMINI_KEY", cleanKey);
+        setShowApiModal(false);
+        setKeyTestResult(null);
+        if (cleanKey) {
+          window.GeminiTutorService.testApiKey(cleanKey).catch(() => {});
+        }
+      };
+
+      // API 키 삭제 (데모 모드 복귀)
+      const handleRemoveApiKey = () => {
+        setApiKey("");
+        setTempApiKeyInput("");
+        localStorage.removeItem("MATH_TUTOR_GEMINI_KEY");
+        setKeyTestResult(null);
+      };
+
+      // API 키 연결 테스트 실행
+      const handleTestApiKey = async () => {
+        if (!tempApiKeyInput.trim()) {
+          setKeyTestResult({ success: false, msg: "API 키를 먼저 입력해 주세요." });
+          return;
+        }
+        setIsTestingKey(true);
+        setKeyTestResult(null);
+        try {
+          const res = await window.GeminiTutorService.testApiKey(tempApiKeyInput.trim());
+          if (res.success) {
+            setKeyTestResult({
+              success: true,
+              msg: `✅ 인증 성공! 내 계정에서 사용 가능한 최적 모델 [${res.activeModel}]과 연결되었습니다.`
+            });
+          } else {
+            setKeyTestResult({
+              success: false,
+              msg: `❌ 연결 실패: ${res.error}`
+            });
+          }
+        } catch (e) {
+          setKeyTestResult({
+            success: false,
+            msg: `❌ 오류: ${e.message}`
+          });
+        } finally {
+          setIsTestingKey(false);
+        }
+      };
+
+      const resetCoachingSession = (problemObj, customText = null) => {
+        setMessages([
+          {
+            id: "welcome-" + Date.now(),
+            role: "tutor",
+            tutorData: {
+              statusBadge: "👋 소크라테스 수학 코칭 에이전트",
+              diagnosisType: "CONDITION_ANALYSIS",
+              diagnosis: `안녕하세요! 저는 **정석 풀이와 답을 바로 알려주지 않고**, 여러분이 풀다가 막힌 지점이나 잘못 잡은 방향을 짚어주며 스스로 정답에 도달하도록 돕는 수학 에이전트입니다.`,
+              guidance: `모든 스마트폰, 태블릿, PC에서 기호 깨짐 없이 수식을 명확히 확인하실 수 있으며, **PDF 파일(시험지, 학습지, 굿노트 필기 PDF 등)**도 바로 업로드하여 코칭받으실 수 있습니다!\n\n시작 방법:\n1. **풀다가 막혔을 때**: 좌측에서 **[⌨️ 텍스트]**, **[✏️ 직접 풀이 쓰기]**, **[📄 사진/PDF 업로드]** 중 하나로 지금까지 푼 과정을 보여주세요.\n2. **풀이 과정 없이 처음부터 막막할 때**: 좌측 문제 카드 아래의 **[🔍 풀이 없이 문제 조건 분석 & 첫 단추 도출]** 버튼을 눌러보세요!`,
+              whyThisHint: "기준 해설지를 AI의 안전장치로 두어, 학생이 어떤 특이한 방식으로 접근하더라도 해설지의 핵심 논리와 대조하여 정확하게 피드백합니다.",
+              relatedConcept: {
+                title: "모든 기기 호환 및 PDF 완벽 지원",
+                explanation: "어떤 환경에서도 네모 박스 깨짐 없이 수식이 렌더링되며, 사진뿐 아니라 PDF 문서도 첫 장 렌더링 및 텍스트를 추출하여 AI가 시각적으로 인식합니다."
+              },
+              followUpPrompt: "좌측의 [🔍 문제 조건 분석 & 첫 단추 도출]을 누르거나, 원클릭 예시 풀이 버튼을 눌러 바로 체험해 보세요!"
+            }
+          }
+        ]);
+      };
+
+      const handleSelectPresetProblem = (prob) => {
+        setSelectedProblemId(prob.id);
+        setProblemText(prob.problemText);
+        setSolutionGuideText(prob.solutionGuideText || "");
+        setProblemImage(null);
+        setProblemPdfInfo(null);
+        setSolutionGuideImage(null);
+        setSolutionGuidePdfInfo(null);
+        setIsEditingProblem(false);
+        resetCoachingSession(prob);
+      };
+
+      // [해설지 사진/풀이 사진을 기준 해설지로 등록하는 핸들러]
+      const handleRegisterAsSolutionGuide = (imageData, pdfInfo = null) => {
+        setSolutionGuideImage(imageData);
+        setSolutionGuidePdfInfo(pdfInfo);
+        // [중요] 기존 예시 문제의 해설지 텍스트가 남아있으면 Gemini가 예시 문제 해설로 착각하므로 초기화!
+        setSolutionGuideText("");
+        setSelectedProblemId("custom");
+        
+        // 문제 텍스트가 예시 문제 그대로라면 해설지 사진 기준 안내로 자동 전환
+        const isPresetText = window.SAMPLE_PROBLEMS.some(p => p.problemText.trim() === (problemText || "").trim());
+        if (isPresetText || !problemText?.trim()) {
+          setProblemText("(첨부된 기준 해설지 사진의 문제를 기준으로 코칭을 진행합니다)");
+        }
+
+        setMessages(prev => [
+          ...prev,
+          {
+            id: "sys-" + Date.now(),
+            role: "tutor",
+            tutorData: {
+              statusBadge: "🔒 기준 정석 해설지 사진 장착 완료!",
+              diagnosisType: "CONDITION_ANALYSIS",
+              diagnosis: "첨부해주신 **해설지 사진**을 비밀 기준(Ground Truth)으로 등록했습니다. 이제 이전 예시 문제의 해설이 아니라, **방금 등록하신 해설지 사진 속 풀이 단계**를 기준으로 실시간 코칭을 진행합니다!",
+              guidance: "학생 풀이를 텍스트/직접 필기/사진으로 제출하시거나, 아래의 **[🔍 풀이 없이 문제 조건 분석 & 첫 단추 도출]** 버튼을 눌러 첫 방향을 안내받아 보세요.",
+              whyThisHint: "해설지의 정답을 학생에게 직접 노출하지 않고, 단계별 힌트를 도출하기 위한 안전장치로 사용됩니다.",
+              relatedConcept: {
+                title: "기준 해설지 기반 맞춤형 코칭",
+                explanation: "등록된 해설지 사진의 풀이 단계를 바탕으로 학생이 현재 몇 단계에 있는지 대조하여 다음 한 걸음만 질문합니다."
+              },
+              followUpPrompt: "풀이 과정을 보여주시거나 [🔍 문제 조건 분석] 버튼을 눌러보세요!"
+            }
+          }
+        ]);
+      };
+
+      const handleAnalyzeProblemConditions = async () => {
+        const userMsg = {
+          id: "msg-" + Date.now(),
+          role: "student",
+          text: "💡 아직 풀이를 시작하지 못했어요. 정답 말고 이 문제의 조건들을 분석해서 어떻게 풀이 방향을 잡아야 하는지 알려주세요!"
+        };
+        setMessages(prev => [...prev, userMsg]);
+        setIsLoading(true);
+
+        try {
+          let tutorResult;
+          if (apiKey.trim()) {
+            tutorResult = await window.GeminiTutorService.callGeminiAPI({
+              apiKey,
+              problemText,
+              problemImage,
+              problemPdfText: problemPdfInfo?.extractedText,
+              solutionGuideText,
+              solutionGuideImage,
+              solutionGuidePdfText: solutionGuidePdfInfo?.extractedText,
+              studentText: userMsg.text,
+              studentImage: null,
+              chatHistory: messages,
+              mode: "ANALYZE_PROBLEM_ONLY"
+            });
+          } else {
+            await new Promise(r => setTimeout(r, 500));
+            tutorResult = window.GeminiTutorService.simulateSocraticCoaching({
+              currentProblem: selectedProblemId === "custom" ? null : currentPreset,
+              problemText,
+              solutionGuideText,
+              solutionGuideImage,
+              studentText: userMsg.text,
+              studentImage: null,
+              mode: "ANALYZE_PROBLEM_ONLY"
+            });
+          }
+
+          setMessages(prev => [
+            ...prev,
+            {
+              id: "tutor-" + Date.now(),
+              role: "tutor",
+              tutorData: tutorResult
+            }
+          ]);
+        } catch (err) {
+          setMessages(prev => [
+            ...prev,
+            {
+              id: "err-" + Date.now(),
+              role: "tutor",
+              text: `⚠️ AI 응답 중 오류가 발생했습니다: ${err.message}`
+            }
+          ]);
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
+      const handleSubmitStudentWork = async ({ text, image, pdfText, source = "text" }) => {
+        if (!text?.trim() && !image) return;
+
+        let defaultLabel = text?.trim();
+        if (!defaultLabel) {
+          if (source === "canvas") defaultLabel = "(직접 작성한 손글씨 필기 캔버스 제출)";
+          else if (source === "pdf") defaultLabel = `(풀이 PDF 파일 제출: ${uploadedSolutionPdfInfo?.fileName || "문서"})`;
+          else defaultLabel = "(풀이 과정 사진 업로드)";
+        }
+
+        const studentMsg = {
+          id: "stu-" + Date.now(),
+          role: "student",
+          text: defaultLabel,
+          image,
+          source
+        };
+
+        setMessages(prev => [...prev, studentMsg]);
+        if (source === "text") setStudentTextInput("");
+        if (source === "file") {
+          setUploadedSolutionImage(null);
+          setUploadedSolutionPdfInfo(null);
+          setFileCaption("");
+        }
+        setIsLoading(true);
+
+        try {
+          let tutorResult;
+          if (apiKey.trim()) {
+            tutorResult = await window.GeminiTutorService.callGeminiAPI({
+              apiKey,
+              problemText,
+              problemImage,
+              problemPdfText: problemPdfInfo?.extractedText,
+              solutionGuideText,
+              solutionGuideImage,
+              solutionGuidePdfText: solutionGuidePdfInfo?.extractedText,
+              studentText: text,
+              studentImage: image,
+              studentPdfText: pdfText,
+              chatHistory: messages,
+              mode: "DIAGNOSE_SOLUTION"
+            });
+          } else {
+            await new Promise(r => setTimeout(r, 550));
+            tutorResult = window.GeminiTutorService.simulateSocraticCoaching({
+              currentProblem: selectedProblemId === "custom" ? null : currentPreset,
+              problemText,
+              solutionGuideText,
+              solutionGuideImage,
+              studentText: text,
+              studentImage: image,
+              inputSource: source === "file" ? (uploadedSolutionPdfInfo ? "pdf" : "image") : source,
+              mode: "DIAGNOSE_SOLUTION"
+            });
+          }
+
+          setMessages(prev => [
+            ...prev,
+            {
+              id: "tutor-" + Date.now(),
+              role: "tutor",
+              tutorData: tutorResult
+            }
+          ]);
+        } catch (err) {
+          setMessages(prev => [
+            ...prev,
+            {
+              id: "err-" + Date.now(),
+              role: "tutor",
+              text: `⚠️ 오류: ${err.message}`
+            }
+          ]);
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
+      const handleAskDeeperExplanation = async (tutorData) => {
+        const questionText = `"${tutorData.statusBadge}" 힌트가 잘 이해되지 않아요. 왜 이런 힌트가 나왔는지 관련 기초 개념부터 더 쉽게 풀어서 설명해 주세요!`;
+        const studentMsg = {
+          id: "stu-" + Date.now(),
+          role: "student",
+          text: questionText
+        };
+        setMessages(prev => [...prev, studentMsg]);
+        setIsLoading(true);
+
+        try {
+          let tutorResult;
+          if (apiKey.trim()) {
+            tutorResult = await window.GeminiTutorService.callGeminiAPI({
+              apiKey,
+              problemText,
+              problemImage,
+              solutionGuideText,
+              solutionGuideImage,
+              studentText: questionText,
+              studentImage: null,
+              chatHistory: messages,
+              mode: "EXPLAIN_HINT_DEEPER"
+            });
+          } else {
+            await new Promise(r => setTimeout(r, 450));
+            tutorResult = window.GeminiTutorService.simulateSocraticCoaching({
+              currentProblem: selectedProblemId === "custom" ? null : currentPreset,
+              problemText,
+              solutionGuideText,
+              solutionGuideImage,
+              studentText: "이해가 안 돼요 왜 그런가요",
+              mode: "EXPLAIN_HINT_DEEPER"
+            });
+          }
+
+          setMessages(prev => [
+            ...prev,
+            {
+              id: "tutor-" + Date.now(),
+              role: "tutor",
+              tutorData: tutorResult
+            }
+          ]);
+        } catch (err) {
+          setMessages(prev => [
+            ...prev,
+            {
+              id: "err-" + Date.now(),
+              role: "tutor",
+              text: `⚠️ 오류: ${err.message}`
+            }
+          ]);
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
+      // 그래프/그림판 시각화 해설 요청
+      const handleAskGraphExplanation = async (tutorData = null) => {
+        const questionText = "📊 문제 조건과 함수의 그래프(개형/축/교점 등)를 그림판에 시각적으로 그려서 설명해 주세요!";
+        const studentMsg = {
+          id: "stu-" + Date.now(),
+          role: "student",
+          text: questionText
+        };
+        setMessages(prev => [...prev, studentMsg]);
+        setIsLoading(true);
+
+        try {
+          let tutorResult;
+          if (apiKey.trim()) {
+            tutorResult = await window.GeminiTutorService.callGeminiAPI({
+              apiKey,
+              problemText,
+              problemImage,
+              problemPdfText: problemPdfInfo?.extractedText,
+              solutionGuideText,
+              solutionGuideImage,
+              solutionGuidePdfText: solutionGuidePdfInfo?.extractedText,
+              studentText: questionText,
+              studentImage: null,
+              chatHistory: messages,
+              mode: "EXPLAIN_WITH_GRAPH",
+              wantsGraph: true
+            });
+          } else {
+            await new Promise(r => setTimeout(r, 450));
+            tutorResult = window.GeminiTutorService.simulateSocraticCoaching({
+              currentProblem: selectedProblemId === "custom" ? null : currentPreset,
+              problemText,
+              solutionGuideText,
+              solutionGuideImage,
+              studentText: questionText,
+              studentImage: null,
+              mode: "EXPLAIN_WITH_GRAPH",
+              wantsGraph: true
+            });
+          }
+
+          setMessages(prev => [
+            ...prev,
+            {
+              id: "tutor-" + Date.now(),
+              role: "tutor",
+              tutorData: tutorResult
+            }
+          ]);
+        } catch (err) {
+          setMessages(prev => [
+            ...prev,
+            {
+              id: "err-" + Date.now(),
+              role: "tutor",
+              text: `⚠️ 그래프 생성 중 오류가 발생했습니다: ${err.message}`
+            }
+          ]);
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
+      // 튜터가 그려준 그래프를 내 드로잉 캔버스(그림판) 배경으로 가져오기
+      const handleExportGraphToCanvas = (dataUrl) => {
+        setExternalCanvasBg(dataUrl);
+        setInputTab("canvas");
+      };
+
+
+      const handleGenerateSimilarProblem = async (difficultyIndex = 0) => {
+        setSimilarProblemModalOpen(true);
+        setShowSimilarHint(false);
+        setIsGeneratingSimilar(true);
+
+        try {
+          if (apiKey.trim()) {
+            const generated = await window.GeminiTutorService.generateSimilarProblemWithGemini({
+              apiKey,
+              problemText,
+              problemImage,
+              solutionGuideText,
+              difficultyLevel: difficultyIndex === 0 ? "기본 쌍둥이 문제 (숫자/계수 변형)" : "응용 변형 문제"
+            });
+            setCurrentSimilarProblem(generated);
+          } else {
+            await new Promise(r => setTimeout(r, 400));
+            if (currentPreset && currentPreset.similarProblems && currentPreset.similarProblems.length > 0) {
+              const idx = difficultyIndex % currentPreset.similarProblems.length;
+              setCurrentSimilarProblem(currentPreset.similarProblems[idx]);
+            } else {
+              setCurrentSimilarProblem({
+                level: "쌍둥이 변형 문제",
+                problemText: `다항함수 $f(x)$가 다음 조건을 만족시킬 때, $f(3)$의 값을 구하시오.\n\n(가) $\\lim_{x \\to \\infty} \\frac{f(x)}{x^2 + 2x} = 1$\n(나) $\\lim_{x \\to 0} \\frac{f(x)}{x} = 5$`,
+                keyPoint: "방금 학습한 '분모가 0으로 가면 분자도 0으로 가야 한다'는 원리와 최고차항 비교를 그대로 적용해 보세요!",
+                hintStep1: "조건 (가)에서 $f(x) = x^2 + ax + b$, 조건 (나)에서 $f(0)=0 \\Rightarrow b=0$을 먼저 도출해 보세요."
+              });
+            }
+          }
+        } catch (err) {
+          alert("유사 문제 생성 중 오류가 발생했습니다: " + err.message);
+        } finally {
+          setIsGeneratingSimilar(false);
+        }
+      };
+
+      const handleStartSimilarProblem = () => {
+        if (!currentSimilarProblem) return;
+        setProblemText(currentSimilarProblem.problemText);
+        if (currentSimilarProblem.solutionGuide) {
+          setSolutionGuideText(currentSimilarProblem.solutionGuide);
+        }
+        setProblemImage(null);
+        setProblemPdfInfo(null);
+        setSolutionGuideImage(null);
+        setSolutionGuidePdfInfo(null);
+        setSelectedProblemId("custom");
+        setSimilarProblemModalOpen(false);
+        setMessages([
+          {
+            id: "sim-start-" + Date.now(),
+            role: "tutor",
+            tutorData: {
+              statusBadge: "🎯 이해도 점검 쌍둥이 문제 도전 시작!",
+              diagnosisType: "CONDITION_ANALYSIS",
+              diagnosis: `방금 푼 문제의 핵심 원리를 완벽하게 내 것으로 만들었는지 확인하기 위한 **${currentSimilarProblem.level}**입니다!`,
+              guidance: `**적용할 핵심 원리:**\n${currentSimilarProblem.keyPoint}\n\n이전 문제의 풀이 기억을 살려 첫 번째 식을 세우고, 좌측에서 텍스트/직접 필기/사진으로 제출해 보세요!`,
+              whyThisHint: currentSimilarProblem.hintStep1,
+              relatedConcept: {
+                title: "개념 전이 및 이해도 자가 점검 (Transfer Learning)",
+                explanation: "숫자와 형태가 달라진 유사 문제를 혼자 힘으로 풀어내면 이 단원의 출제 원리를 완벽하게 마스터한 것입니다."
+              },
+              followUpPrompt: "조건을 보고 가장 먼저 세울 수 있는 식을 입력하거나 직접 써보세요!"
+            }
+          }
+        ]);
+      };
+
+      const handleUniversalFileChange = async (e, targetType) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setIsProcessingPdf(true);
+        try {
+          if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+            const pdfResult = await processPdfFile(file, 1);
+            if (targetType === "problem") {
+              setProblemImage(pdfResult.dataUrl);
+              setProblemPdfInfo(pdfResult);
+              setSelectedProblemId("custom");
+            } else if (targetType === "solutionGuide") {
+              handleRegisterAsSolutionGuide(pdfResult.dataUrl, pdfResult);
+            } else {
+              setUploadedSolutionImage(pdfResult.dataUrl);
+              setUploadedSolutionPdfInfo(pdfResult);
+            }
+          } else {
+            const reader = new FileReader();
+            reader.onload = () => {
+              if (targetType === "problem") {
+                setProblemImage(reader.result);
+                setProblemPdfInfo(null);
+                setSelectedProblemId("custom");
+              } else if (targetType === "solutionGuide") {
+                handleRegisterAsSolutionGuide(reader.result, null);
+              } else {
+                setUploadedSolutionImage(reader.result);
+                setUploadedSolutionPdfInfo(null);
+              }
+            };
+            reader.readAsDataURL(file);
+          }
+        } catch (err) {
+          alert("파일 처리 중 오류가 발생했습니다: " + err.message);
+        } finally {
+          setIsProcessingPdf(false);
+        }
+      };
+
+      const quickMathTokens = [
+        { label: "x²", insert: "x^2" },
+        { label: "f(x)", insert: "f(x)" },
+        { label: "lim x→0", insert: "lim_{x->0} " },
+        { label: "분수 a/b", insert: "( )/( )" },
+        { label: "f(0)=0", insert: "f(0) = 0" },
+        { label: "약분", insert: "x로 묶어서 약분하면 " }
+      ];
+
+      return (
+        <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
+          {/* 상단 헤더 */}
+          <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200 px-4 sm:px-6 py-3">
+            <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center text-white font-black text-lg shadow-sm">
+                  ∑
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h1 className="text-base sm:text-lg font-extrabold tracking-tight text-slate-900">
+                      소크라테스 수학 코칭 에이전트
+                    </h1>
+                    <span className="hidden sm:inline-block px-2 py-0.5 text-[11px] font-bold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      모든 기기 호환 수식 · PDF 완벽 지원
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    스마트폰·태블릿·PC 기호 깨짐 없음 · 이미지 및 PDF 학습지 업로드 · 기준 해설지 가드레일
+                  </p>
+                </div>
+              </div>
+
+              {/* 우측 상단 액션 버튼 그룹 */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => handleGenerateSimilarProblem(0)}
+                  className="px-3 py-2 rounded-xl text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition flex items-center gap-1.5"
+                >
+                  <span>🔄 유사 문제 생성</span>
+                </button>
+
+                {/* [핵심] API 키 등록 버튼 (직관적 강조 디자인) */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTempApiKeyInput(apiKey);
+                    setKeyTestResult(null);
+                    setShowApiModal(true);
+                  }}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition flex items-center gap-2 shadow-xs ${
+                    apiKey.trim()
+                      ? "bg-emerald-500 hover:bg-emerald-600 text-white border-emerald-600"
+                      : "bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-700 animate-pulse"
+                  }`}
+                >
+                  <span>🔑</span>
+                  <span>{apiKey.trim() ? "API 키 등록됨 (Gemini 연동)" : "API 키 등록하기"}</span>
+                </button>
+              </div>
+            </div>
+          </header>
+
+          {/* API 키 미등록 시 눈에 띄는 안내 배너 */}
+          {!apiKey.trim() && (
+            <div className="bg-gradient-to-r from-indigo-50 via-purple-50 to-pink-50 border-b border-indigo-100 px-4 py-2.5">
+              <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-2 text-indigo-950 font-medium">
+                  <span className="text-base">💡</span>
+                  <span>
+                    현재 <strong>내장된 시뮬레이션 데모 모드</strong>로 작동 중입니다. 나만의 수학 문제나 손글씨/PDF를 Google Gemini 3.8 Flash 멀티모달 모델로 직접 분석하시려면 API 키를 등록해 보세요!
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTempApiKeyInput(apiKey);
+                    setKeyTestResult(null);
+                    setShowApiModal(true);
+                  }}
+                  className="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold transition whitespace-nowrap shadow-xs"
+                >
+                  무료 API 키 10초 등록 →
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* 메인 워크스페이스 */}
+          <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* 좌측: 문제 등록 + 기준 정석 해설지(비밀 참조) + 3가지 풀이 입력 */}
+            <section className="lg:col-span-6 flex flex-col gap-5">
+              {/* 문제 및 기준 해설지 카드 */}
+              <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden">
+                <div className="bg-slate-900 text-white px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold px-2.5 py-1 rounded-md bg-indigo-500/30 text-indigo-200 border border-indigo-400/30">
+                      현재 문제
+                    </span>
+                    <select
+                      value={selectedProblemId}
+                      onChange={(e) => {
+                        if (e.target.value === "custom") {
+                          setSelectedProblemId("custom");
+                          setIsEditingProblem(true);
+                          return;
+                        }
+                        const found = window.SAMPLE_PROBLEMS.find(p => p.id === e.target.value);
+                        if (found) handleSelectPresetProblem(found);
+                      }}
+                      className="bg-slate-800 text-white text-xs sm:text-sm font-semibold rounded-lg px-2.5 py-1.5 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                    >
+                      {window.SAMPLE_PROBLEMS.map(p => (
+                        <option key={p.id} value={p.id}>
+                          [{p.category}] {p.title}
+                        </option>
+                      ))}
+                      <option value="custom">
+                        ✏️ [직접 등록] {solutionGuideImage ? "📷 해설지 사진 장착됨" : "새 문제/해설지 등록"}
+                      </option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!isEditingProblem) {
+                          setSelectedProblemId("custom");
+                        }
+                        setIsEditingProblem(!isEditingProblem);
+                      }}
+                      className="px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
+                    >
+                      {isEditingProblem ? "✅ 문제 저장" : "✏️ 새 문제 & 해설지 등록"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-4 sm:p-5 flex flex-col gap-4">
+                  {/* 기준 해설지 장착 상태 알림 배지 */}
+                  <div className={`flex items-center justify-between border px-3.5 py-2.5 rounded-xl text-xs ${
+                    solutionGuideImage
+                      ? "bg-emerald-50 border-emerald-200 text-emerald-950"
+                      : "bg-slate-50 border-slate-200 text-slate-700"
+                  }`}>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`font-bold flex items-center gap-1.5 ${solutionGuideImage ? "text-emerald-700" : "text-indigo-700"}`}>
+                        <span>🔒</span>
+                        <span>{solutionGuideImage ? "기준 정석 해설지 사진 등록됨 (AI 비밀 참조)" : "기준 정석 해설지 장착됨"}</span>
+                      </span>
+                      <span className="text-slate-300">|</span>
+                      <span className="text-slate-500 text-[11px]">
+                        {solutionGuideImage ? "예시 문제 해설 대신 이 해설지 사진을 기준으로 학생을 코칭합니다" : "AI 오류 방지용 비밀 참조 (학생 노출 금지)"}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowSecretSolutionPanel(!showSecretSolutionPanel)}
+                      className="text-xs font-bold text-indigo-600 hover:underline ml-2 whitespace-nowrap"
+                    >
+                      {showSecretSolutionPanel ? "해설지 닫기 ▲" : "해설지 확인/사진 변경 ▼"}
+                    </button>
+                  </div>
+
+                  {/* 선생님 전용 기준 정석 해설지 확인/수정 패널 */}
+                  {showSecretSolutionPanel && (
+                    <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-4 flex flex-col gap-3 animate-fade-in">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
+                          <span>🛡️</span>
+                          <span>기준 정석 해설지 및 정답 (AI가 오답을 내지 않도록 검증하는 기준점)</span>
+                        </span>
+                        <span className="text-[11px] bg-amber-200/60 text-amber-900 px-2 py-0.5 rounded-md font-semibold">
+                          학생에게 절대 비공개
+                        </span>
+                      </div>
+                      
+                      {solutionGuideImage && (
+                        <div className="bg-white p-3 rounded-lg border border-amber-300 flex flex-col gap-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-amber-900">📷 현재 등록된 해설지 사진 미리보기</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSolutionGuideImage(null);
+                                setSolutionGuidePdfInfo(null);
+                              }}
+                              className="text-xs text-rose-600 hover:underline font-semibold"
+                            >
+                              해설지 사진 삭제
+                            </button>
+                          </div>
+                          <img
+                            src={solutionGuideImage}
+                            alt="기준 해설지 이미지"
+                            className="max-h-52 object-contain rounded border border-amber-200 mx-auto"
+                          />
+                        </div>
+                      )}
+
+                      <textarea
+                        rows={3}
+                        value={solutionGuideText}
+                        onChange={(e) => setSolutionGuideText(e.target.value)}
+                        placeholder="정답 및 정석 풀이 단계를 텍스트로도 입력할 수 있습니다. (해설지 사진이 첨부된 경우 사진이 최우선 적용됩니다)&#10;예: [정답: 8] 1. x->0일 때 분모->0이므로 f(0)=0. 2. x약분 후 a=2..."
+                        className="w-full p-3 text-xs sm:text-sm rounded-lg border border-amber-300 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
+                      />
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <label className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-amber-300 hover:bg-amber-100/50 text-amber-900 inline-flex items-center gap-1.5 shadow-2xs">
+                          <span>📄 새 해설지 사진 또는 PDF 교체하기</span>
+                          <input
+                            type="file"
+                            accept="image/*,application/pdf"
+                            onChange={(e) => handleUniversalFileChange(e, "solutionGuide")}
+                            className="hidden"
+                          />
+                        </label>
+                        {solutionGuidePdfInfo && (
+                          <span className="text-xs text-amber-800 font-medium">
+                            📑 PDF 등록됨: {solutionGuidePdfInfo.fileName} (총 {solutionGuidePdfInfo.totalPages}페이지)
+                          </span>
+                        )}
+                        <span className="text-[11px] text-amber-800">
+                          자동 저장되어 모든 코칭 질문에 즉시 반영됩니다
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 문제 본문 편집 모드 또는 표시 모드 */}
+                  {isEditingProblem ? (
+                    <div className="flex flex-col gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                      <div className="text-xs font-bold text-slate-800 flex items-center justify-between">
+                        <span>풀고 싶은 수학 문제와 해설지를 등록하세요:</span>
+                        <span className="text-[11px] text-indigo-600 font-medium">직접 등록 모드</span>
+                      </div>
+                      <textarea
+                        rows={3}
+                        value={problemText}
+                        onChange={(e) => setProblemText(e.target.value)}
+                        placeholder="문제 본문을 적거나, 아래 버튼으로 문제 사진을 첨부하세요.&#10;예: 다항함수 f(x)에 대하여..."
+                        className="w-full p-3 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <label className="cursor-pointer px-3 py-2 rounded-lg text-xs font-semibold bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 inline-flex items-center justify-center gap-1.5 shadow-2xs">
+                          <span>📷 문제 사진 첨부</span>
+                          <input
+                            type="file"
+                            accept="image/*,application/pdf"
+                            onChange={(e) => handleUniversalFileChange(e, "problem")}
+                            className="hidden"
+                          />
+                        </label>
+                        <label className="cursor-pointer px-3 py-2 rounded-lg text-xs font-semibold bg-amber-50 border border-amber-300 hover:bg-amber-100/60 text-amber-900 inline-flex items-center justify-center gap-1.5 shadow-2xs">
+                          <span>🔒 해설지 사진 첨부 (AI 비밀 기준)</span>
+                          <input
+                            type="file"
+                            accept="image/*,application/pdf"
+                            onChange={(e) => handleUniversalFileChange(e, "solutionGuide")}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                      <div className="flex items-center justify-between pt-1">
+                        <span className="text-[11px] text-slate-500">
+                          {solutionGuideImage ? "✅ 해설지 사진 등록됨" : "💡 해설지 사진을 등록하면 AI가 정확하게 단계별로 코칭합니다"}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsEditingProblem(false);
+                            setSelectedProblemId("custom");
+                            resetCoachingSession({ problemText }, problemText);
+                          }}
+                          className="px-4 py-2 rounded-lg text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm"
+                        >
+                          이 문제와 해설지로 코칭 시작하기
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-slate-50/70 rounded-xl p-4 border border-slate-200/80">
+                      <MathText text={problemText} className="text-sm sm:text-base text-slate-900 font-medium" />
+                      {problemImage && (
+                        <div className="mt-3 relative inline-block">
+                          <img
+                            src={problemImage}
+                            alt="첨부된 문제 자료"
+                            className="max-h-56 rounded-lg border border-slate-300 bg-white"
+                          />
+                          {problemPdfInfo && (
+                            <span className="absolute bottom-2 left-2 bg-slate-900/80 text-white text-[11px] px-2 py-0.5 rounded">
+                              PDF: {problemPdfInfo.fileName} (1 / {problemPdfInfo.totalPages}p)
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setProblemImage(null);
+                              setProblemPdfInfo(null);
+                            }}
+                            className="absolute top-1.5 right-1.5 bg-slate-900/75 text-white text-xs px-2 py-0.5 rounded-md"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 풀이 없이 시작하는 학생을 위한 조건 분석 & 이해도 점검 버튼 */}
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-1">
+                    <div className="text-xs text-slate-600">
+                      💡 <strong>문제를 다 풀었거나 개념을 확인하고 싶다면?</strong> 숫자와 조건이 변형된 유사문제로 실력을 점검해 보세요.
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => handleGenerateSimilarProblem(0)}
+                        disabled={isLoading || isProcessingPdf}
+                        className="px-3.5 py-2.5 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-300 font-bold text-xs sm:text-sm shadow-2xs transition flex items-center justify-center gap-1.5 whitespace-nowrap"
+                        title="이 문제를 이해했는지 확인하기 위한 쌍둥이 유사문제를 즉시 출제합니다"
+                      >
+                        <span>🎯 이해도 확인 유사문제</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleAnalyzeProblemConditions}
+                        disabled={isLoading || isProcessingPdf}
+                        className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:bg-slate-300 text-white font-bold text-xs sm:text-sm shadow-sm transition flex items-center justify-center gap-1.5 whitespace-nowrap"
+                      >
+                        <span>🔍 풀이 없이 문제 조건 분석 & 첫 단추 도출</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 학생 풀이 멀티모달 입력 탭 */}
+              <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden">
+                <div className="grid grid-cols-3 border-b border-slate-200 bg-slate-50/70 p-1.5 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setInputTab("text")}
+                    className={`py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold transition flex items-center justify-center gap-1.5 ${
+                      inputTab === "text"
+                        ? "bg-white text-indigo-600 shadow-sm border border-slate-200/80"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-white/50"
+                    }`}
+                  >
+                    <span>⌨️ 텍스트·수식 풀이</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInputTab("canvas")}
+                    className={`py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold transition flex items-center justify-center gap-1.5 ${
+                      inputTab === "canvas"
+                        ? "bg-white text-indigo-600 shadow-sm border border-slate-200/80"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-white/50"
+                    }`}
+                  >
+                    <span>✏️ 직접 풀이 쓰기</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInputTab("file")}
+                    className={`py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold transition flex items-center justify-center gap-1.5 ${
+                      inputTab === "file"
+                        ? "bg-white text-indigo-600 shadow-sm border border-slate-200/80"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-white/50"
+                    }`}
+                  >
+                    <span>📄 사진 또는 PDF 업로드</span>
+                  </button>
+                </div>
+
+                <div className="p-4 sm:p-5">
+                  {inputTab === "text" && (
+                    <div className="flex flex-col gap-3.5">
+                      {currentPreset && currentPreset.sampleStudentAttempts && (
+                        <div className="bg-indigo-50/60 border border-indigo-100 rounded-xl p-3 flex flex-col gap-2">
+                          <span className="text-xs font-bold text-indigo-900">
+                            ⚡ 원클릭 상황별 테스트 (학생이 풀다가 막히거나 방향을 잘못 잡은 경우 클릭해 보세요):
+                          </span>
+                          <div className="flex flex-col gap-1.5">
+                            {currentPreset.sampleStudentAttempts.map((sample, idx) => (
+                              <button
+                                key={idx}
+                                type="button"
+                                onClick={() => handleSubmitStudentWork({ text: sample.text, source: "text" })}
+                                disabled={isLoading}
+                                className="text-left px-3 py-2 rounded-lg bg-white hover:bg-indigo-50 border border-indigo-200/80 text-xs font-semibold text-indigo-950 transition flex items-center justify-between gap-2"
+                              >
+                                <span>{sample.label}</span>
+                                <span className="text-indigo-600 font-bold whitespace-nowrap">진단받기 →</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-xs font-semibold text-slate-400 mr-1">수식 도우미:</span>
+                        {quickMathTokens.map((tok, i) => (
+                          <button
+                            key={i}
+                            type="button"
+                            onClick={() => setStudentTextInput(prev => prev + tok.insert)}
+                            className="px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition"
+                          >
+                            {tok.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <textarea
+                        rows={4}
+                        value={studentTextInput}
+                        onChange={(e) => setStudentTextInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSubmitStudentWork({ text: studentTextInput, source: "text" });
+                          }
+                        }}
+                        placeholder="여기까지 푼 과정이나 막힌 부분을 편하게 적어주세요!&#10;예: 조건 (나)에서 분모가 0으로 가니까 f(0)=0 인 것까지는 알겠는데 그 다음 약분을 어떻게 하나요?"
+                        className="w-full p-3.5 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                      />
+
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] text-slate-400">
+                          Enter로 바로 전송 · Shift+Enter로 줄바꿈
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleSubmitStudentWork({ text: studentTextInput, source: "text" })}
+                          disabled={isLoading || !studentTextInput.trim()}
+                          className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white font-bold text-xs sm:text-sm shadow-sm transition"
+                        >
+                          📤 내 풀이 진단 & 코칭받기
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {inputTab === "canvas" && (
+                    <DrawingCanvas
+                      isLoading={isLoading}
+                      externalBackgroundImage={externalCanvasBg}
+                      onSubmitCanvasImage={(dataUrl, comment) =>
+                        handleSubmitStudentWork({
+                          text: comment,
+                          image: dataUrl,
+                          source: "canvas"
+                        })
+                      }
+                    />
+                  )}
+
+                  {inputTab === "file" && (
+                    <div className="flex flex-col gap-4">
+                      <label className="border-2 border-dashed border-indigo-200 hover:border-indigo-400 bg-indigo-50/30 rounded-2xl p-6 text-center cursor-pointer transition flex flex-col items-center justify-center gap-2">
+                        <div className="w-12 h-12 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-2xl">
+                          📑
+                        </div>
+                        <div className="text-sm font-bold text-slate-800">
+                          손글씨 풀이 사진 또는 PDF 파일을 선택하세요
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          노트 사진(JPG, PNG)뿐 아니라 <strong>굿노트/삼성노트/학습지 PDF 파일</strong>도 첫 장 렌더링 및 텍스트를 즉시 추출합니다
+                        </div>
+                        <input
+                          type="file"
+                          accept="image/*,application/pdf"
+                          onChange={(e) => handleUniversalFileChange(e, "solution")}
+                          className="hidden"
+                        />
+                      </label>
+
+                      {isProcessingPdf && (
+                        <div className="p-3 text-center text-xs text-indigo-600 font-semibold bg-indigo-50 rounded-lg animate-pulse">
+                          ⏳ PDF 문서를 고해상도로 렌더링하고 텍스트를 추출하는 중입니다...
+                        </div>
+                      )}
+
+                      {uploadedSolutionImage && (
+                        <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-col gap-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                              {uploadedSolutionPdfInfo ? "📑 PDF 풀이 문서 미리보기" : "📷 사진 풀이 미리보기"}
+                              {uploadedSolutionPdfInfo && (
+                                <span className="text-[11px] font-normal text-slate-500">
+                                  ({uploadedSolutionPdfInfo.fileName} · 1 / {uploadedSolutionPdfInfo.totalPages}p)
+                                </span>
+                              )}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setUploadedSolutionImage(null);
+                                setUploadedSolutionPdfInfo(null);
+                              }}
+                              className="text-xs text-rose-600 font-semibold hover:underline"
+                            >
+                              삭제
+                            </button>
+                          </div>
+                          <img
+                            src={uploadedSolutionImage}
+                            alt="학생 풀이 자료"
+                            className="max-h-60 object-contain rounded-lg border border-slate-300 bg-white mx-auto"
+                          />
+                          <input
+                            type="text"
+                            value={fileCaption}
+                            onChange={(e) => setFileCaption(e.target.value)}
+                            placeholder="(선택) 첨부한 파일에서 특히 막힌 줄이나 질문을 적어주세요"
+                            className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-300"
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleSubmitStudentWork({
+                                text: fileCaption,
+                                image: uploadedSolutionImage,
+                                pdfText: uploadedSolutionPdfInfo?.extractedText,
+                                source: "file"
+                              })
+                            }
+                            disabled={isLoading}
+                            className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm shadow-sm transition"
+                          >
+                            📤 이 풀이 자료로 첨삭 & 코칭받기
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleRegisterAsSolutionGuide(uploadedSolutionImage, uploadedSolutionPdfInfo);
+                              setUploadedSolutionImage(null);
+                              setUploadedSolutionPdfInfo(null);
+                              setFileCaption("");
+                            }}
+                            className="w-full py-2 px-3 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-xs flex items-center justify-center gap-1.5 transition shadow-2xs"
+                          >
+                            <span>💡 혹시 풀이가 아니라 '해설지 사진'인가요? 👉 <strong>[🔒 기준 해설지로 등록하기]</strong></span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </section>
+
+            {/* 우측: 실시간 소크라테스 코칭 대화창 */}
+            <section className="lg:col-span-6 flex flex-col bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden h-[760px]">
+              <div className="px-5 py-3.5 border-b border-slate-200 bg-slate-50/80 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <div>
+                    <h2 className="text-sm font-extrabold text-slate-900">
+                      실시간 1:1 소크라테스 코칭 대화
+                    </h2>
+                    <p className="text-[11px] text-slate-500">
+                      모든 기기에서 깨지지 않는 수식으로 대화하며, 스스로 정답에 도달하도록 유도합니다
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => resetCoachingSession(currentPreset || { problemText }, problemText)}
+                  className="px-2.5 py-1 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-200/70 border border-slate-200 transition"
+                >
+                  🔄 대화 초기화
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-4 sm:p-5 flex flex-col gap-4 bg-slate-50/40">
+                {messages.map((msg) => {
+                  if (msg.role === "student") {
+                    return (
+                      <div key={msg.id} className="flex flex-col items-end gap-1.5 animate-fade-in">
+                        <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-medium px-1">
+                          <span>나의 풀이 / 질문</span>
+                        </div>
+                        <div className="max-w-[88%] bg-indigo-600 text-white rounded-2xl p-3.5 shadow-sm text-sm flex flex-col gap-2">
+                          {msg.image && (
+                            <img
+                              src={msg.image}
+                              alt="제출한 풀이"
+                              className="max-h-48 rounded-lg border border-indigo-400 bg-white p-1"
+                            />
+                          )}
+                          {msg.text && <MathText text={msg.text} />}
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div key={msg.id} className="flex flex-col items-start gap-1.5 w-full">
+                      <TutorMessageCard
+                        message={msg}
+                        onAskDeeperExplanation={handleAskDeeperExplanation}
+                        onAskGraphExplanation={handleAskGraphExplanation}
+                        onExportToScratchpad={handleExportGraphToCanvas}
+                        onGenerateSimilar={handleGenerateSimilarProblem}
+                      />
+                    </div>
+                  );
+                })}
+
+                {isLoading && (
+                  <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex items-center gap-3 text-sm text-slate-600 animate-pulse">
+                    <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold">
+                      ∑
+                    </div>
+                    <span>기준 해설지와 학생의 풀이를 대조하며 다음 방향을 분석하고 있습니다...</span>
+                  </div>
+                )}
+
+                <div ref={chatEndRef} />
+              </div>
+
+              {/* 빠른 대화 체험 칩 & 채팅창 */}
+              <div className="p-3.5 bg-white border-t border-slate-200 flex flex-col gap-2.5">
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                  <span className="text-[11px] font-bold text-slate-400 whitespace-nowrap">빠른 대화 체험:</span>
+                  <button
+                    type="button"
+                    onClick={() => handleGenerateSimilarProblem(0)}
+                    disabled={isLoading}
+                    className="px-2.5 py-1 rounded-full text-xs font-bold bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-300 whitespace-nowrap transition flex items-center gap-1 shadow-2xs shrink-0"
+                    title="한 문제를 풀고 난 후 이해도를 점검하는 쌍둥이 유사문제를 즉시 출제합니다"
+                  >
+                    <span>🎯 이해도 확인 유사문제 받기</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleAskGraphExplanation()}
+                    disabled={isLoading}
+                    className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 whitespace-nowrap transition flex items-center gap-1 shadow-2xs shrink-0"
+                  >
+                    <span>📊 그래프로 그려서 설명해줘!</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSubmitStudentWork({ text: "분모가 0으로 가니까 f(0) = 0 이어서 b = 0 이 됩니다!", source: "text" })}
+                    className="px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 border border-slate-200 whitespace-nowrap transition"
+                  >
+                    "f(0) = 0 이라서 b = 0 이에요!"
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSubmitStudentWork({ text: "x로 약분하고 0을 대입하면 a = 2 가 나와서 f(x) = x^2 + 2x 예요!", source: "text" })}
+                    className="px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 border border-slate-200 whitespace-nowrap transition"
+                  >
+                    "약분하면 a = 2 예요!"
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSubmitStudentWork({ text: "f(2) = 2^2 + 2*2 = 8 입니다!", source: "text" })}
+                    className="px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 text-slate-700 border border-slate-200 whitespace-nowrap transition"
+                  >
+                    "정답 f(2) = 8 나왔어요!"
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSubmitStudentWork({ text: "방금 주신 힌트가 무슨 말인지 잘 모르겠어요. 왜 그렇게 되나요?", source: "text" })}
+                    className="px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 whitespace-nowrap transition"
+                  >
+                    "🤔 힌트가 이해 안 돼요"
+                  </button>
+                </div>
+
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleSubmitStudentWork({ text: studentTextInput, source: "text" });
+                  }}
+                  className="flex items-center gap-2"
+                >
+                  <input
+                    type="text"
+                    value={studentTextInput}
+                    onChange={(e) => setStudentTextInput(e.target.value)}
+                    placeholder="튜터의 질문에 답하거나, 이어서 푼 식 / 궁금한 점을 실시간으로 입력하세요..."
+                    className="flex-1 px-4 py-2.5 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <button
+                    type="submit"
+                    disabled={isLoading || !studentTextInput.trim()}
+                    className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white font-bold text-sm transition whitespace-nowrap"
+                  >
+                    전송
+                  </button>
+                </form>
+              </div>
+            </section>
+          </main>
+
+          {/* 유사 문제 모달 */}
+          {similarProblemModalOpen && (
+            <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-xl border border-slate-200 animate-fade-in flex flex-col gap-4">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">🔄</span>
+                    <div>
+                      <h3 className="text-base font-extrabold text-slate-900">
+                        맞춤형 유사(쌍둥이) 문제로 재학습하기
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        방금 익힌 조건 해석과 풀이 호흡을 그대로 적용해 스스로 풀어보세요!
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSimilarProblemModalOpen(false)}
+                    className="text-slate-400 hover:text-slate-700 text-lg font-bold"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleGenerateSimilarProblem(0)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100"
+                  >
+                    🌱 기본 쌍둥이 문제 (계수 변형)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleGenerateSimilarProblem(1)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100"
+                  >
+                    🚀 응용 변형 문제 (구조 확장)
+                  </button>
+                </div>
+
+                {isGeneratingSimilar ? (
+                  <div className="py-12 text-center text-sm text-slate-500 animate-pulse">
+                    핵심 개념을 유지한 쌍둥이 문제를 생성하고 있습니다...
+                  </div>
+                ) : currentSimilarProblem ? (
+                  <div className="flex flex-col gap-3.5">
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                      <div className="text-xs font-bold text-indigo-600 mb-2">
+                        [{currentSimilarProblem.level}]
+                      </div>
+                      <MathText text={currentSimilarProblem.problemText} className="text-sm sm:text-base font-medium text-slate-900" />
+                    </div>
+
+                    <div className="bg-emerald-50/80 border border-emerald-200 rounded-xl p-3.5 text-xs sm:text-sm text-emerald-950">
+                      <div className="font-bold mb-1">🎯 재학습 핵심 포인트</div>
+                      <MathText text={currentSimilarProblem.keyPoint} />
+                    </div>
+
+                    {showSimilarHint ? (
+                      <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 text-xs sm:text-sm text-amber-950">
+                        <div className="font-bold mb-1">💡 첫 단추 힌트</div>
+                        <MathText text={currentSimilarProblem.hintStep1} />
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setShowSimilarHint(true)}
+                        className="text-xs font-semibold text-amber-700 hover:underline self-start"
+                      >
+                        💡 첫 단추 힌트 살짝 보기
+                      </button>
+                    )}
+
+                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                      <button
+                        type="button"
+                        onClick={() => setSimilarProblemModalOpen(false)}
+                        className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                      >
+                        닫기
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleStartSimilarProblem}
+                        className="px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm"
+                      >
+                        ✍️ 이 유사 문제를 워크스페이스에 불러와서 풀기
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          )}
+
+          {/* [핵심] Google Gemini API 키 등록 및 연결 테스트 모달 */}
+          {showApiModal && (
+            <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl max-w-lg w-full p-6 sm:p-7 shadow-2xl border border-slate-200 animate-fade-in flex flex-col gap-4">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center text-lg">
+                      🔑
+                    </div>
+                    <div>
+                      <h3 className="text-base font-extrabold text-slate-900">
+                        Google Gemini API 키 등록 및 관리
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        최신 멀티모달 AI(Gemini 3.8 Flash)로 손글씨/PDF 풀이를 분석합니다
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowApiModal(false)}
+                    className="text-slate-400 hover:text-slate-700 text-xl font-bold"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="bg-indigo-50/70 border border-indigo-100 rounded-xl p-3.5 text-xs text-indigo-950 flex flex-col gap-1.5">
+                  <div className="font-bold flex items-center gap-1.5 text-indigo-900">
+                    <span>💡 API 키 발급 안내 (무료)</span>
+                  </div>
+                  <p className="leading-relaxed">
+                    Google 계정만 있으면 <strong>Google AI Studio</strong>에서 10초 만에 무료 API 키를 발급받으실 수 있습니다.
+                  </p>
+                  <a
+                    href="https://aistudio.google.com/app/apikey"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-indigo-600 hover:text-indigo-800 font-bold underline inline-flex items-center gap-1 mt-1"
+                  >
+                    <span>Google AI Studio에서 무료 API 키 발급받기</span>
+                    <span>↗</span>
+                  </a>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                    <span>Gemini API Key 입력:</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowKeyPassword(!showKeyPassword)}
+                      className="text-xs text-slate-500 hover:text-indigo-600 font-medium"
+                    >
+                      {showKeyPassword ? "🙈 키 숨기기" : "👁️ 키 보기"}
+                    </button>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showKeyPassword ? "text" : "password"}
+                      value={tempApiKeyInput}
+                      onChange={(e) => {
+                        setTempApiKeyInput(e.target.value);
+                        setKeyTestResult(null);
+                      }}
+                      placeholder="AIzaSy... 형식의 API 키를 붙여넣으세요"
+                      className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono pr-24"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleTestApiKey}
+                      disabled={isTestingKey || !tempApiKeyInput.trim()}
+                      className="absolute right-1.5 top-1.5 bottom-1.5 px-3 rounded-lg bg-slate-100 hover:bg-slate-200 disabled:opacity-40 text-slate-700 font-bold text-xs transition"
+                    >
+                      {isTestingKey ? "확인 중..." : "⚡ 연결 테스트"}
+                    </button>
+                  </div>
+
+                  {keyTestResult && (
+                    <div className={`p-3 rounded-xl text-xs font-medium border ${
+                      keyTestResult.success
+                        ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                        : "bg-rose-50 text-rose-800 border-rose-200"
+                    }`}>
+                      {keyTestResult.msg}
+                    </div>
+                  )}
+
+                  <p className="text-[11px] text-slate-400">
+                    🔒 입력하신 API 키는 브라우저의 <strong>로컬 저장소(LocalStorage)</strong>에만 저장되며, 외부 서버로 유출되지 않습니다.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+                  {apiKey ? (
+                    <button
+                      type="button"
+                      onClick={handleRemoveApiKey}
+                      className="px-3.5 py-2 rounded-xl text-xs font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 transition"
+                    >
+                      등록된 키 삭제 (데모 모드)
+                    </button>
+                  ) : <div />}
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowApiModal(false)}
+                      className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition"
+                    >
+                      취소
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveApiKey}
+                      disabled={!tempApiKeyInput.trim()}
+                      className="px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white shadow-sm transition"
+                    >
+                      저장하고 사용하기
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
